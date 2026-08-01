@@ -28,7 +28,13 @@ func hostPort(host Host) int {
 
 func sshAuthMethod(cred Credential) (ssh.AuthMethod, error) {
 	if cred.PrivateKey != "" {
-		signer, err := ssh.ParsePrivateKey([]byte(cred.PrivateKey))
+		var signer ssh.Signer
+		var err error
+		if cred.Passphrase != "" {
+			signer, err = ssh.ParsePrivateKeyWithPassphrase([]byte(cred.PrivateKey), []byte(cred.Passphrase))
+		} else {
+			signer, err = ssh.ParsePrivateKey([]byte(cred.PrivateKey))
+		}
 		if err != nil {
 			return nil, fmt.Errorf("invalid private key: %w", err)
 		}

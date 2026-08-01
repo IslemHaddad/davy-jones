@@ -33,6 +33,7 @@ type Credential struct {
 	Username   string `json:"username"`
 	Password   string `json:"password,omitempty"`   // optional
 	PrivateKey string `json:"privateKey,omitempty"` // optional
+	Passphrase string `json:"passphrase,omitempty"` // optional, decrypts PrivateKey if it's encrypted
 }
 
 type AdminConfig struct {
