@@ -1,0 +1,23 @@
+[Unit]
+Description=Davy Jones
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=davy-jones
+Group=davy-jones
+EnvironmentFile=-/etc/davy-jones/env
+ExecStart=/opt/davy-jones/bin/davy-jones
+Restart=on-failure
+RestartSec=2
+
+# Hardening. The service only needs to write its data dir and reach the
+# network (outbound SSH, the Docker socket via group membership).
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/davy-jones
+
+[Install]
+WantedBy=multi-user.target
