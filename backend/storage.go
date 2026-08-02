@@ -183,6 +183,28 @@ func (s *Storage) SaveCredentials(ctx context.Context, credentials []Credential)
 	return s.writeEncrypted("credentials.json", key, credentials)
 }
 
+// Project Storage
+func (s *Storage) GetProjects(ctx context.Context) ([]Project, error) {
+	key, err := sealKey(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var projects []Project
+	err = s.readEncrypted("projects.json", key, &projects)
+	if projects == nil {
+		projects = []Project{}
+	}
+	return projects, err
+}
+
+func (s *Storage) SaveProjects(ctx context.Context, projects []Project) error {
+	key, err := sealKey(ctx)
+	if err != nil {
+		return err
+	}
+	return s.writeEncrypted("projects.json", key, projects)
+}
+
 // SavedCommand Storage
 func (s *Storage) GetSavedCommands(ctx context.Context) ([]SavedCommand, error) {
 	key, err := sealKey(ctx)
@@ -205,10 +227,10 @@ func (s *Storage) SaveSavedCommands(ctx context.Context, cmds []SavedCommand) er
 	return s.writeEncrypted("saved_commands.json", key, cmds)
 }
 
-// AdminConfig Storage -- encrypted like the rest of the sensitive data.
-// Unsealing itself needs no authentication (the key shares are the
-// authorization), so login only becomes possible once the process is
-// unsealed and this file can be decrypted.
+// AdminConfig Storage -- legacy single-admin login, retired in favor of
+// User/users.json below. Kept read-only so AuthManager can migrate an
+// existing install's password hash into a real user account on first
+// contact after upgrade; nothing writes admin.json anymore.
 func (s *Storage) GetAdminConfig(ctx context.Context) (AdminConfig, error) {
 	key, err := sealKey(ctx)
 	if err != nil {
@@ -219,12 +241,27 @@ func (s *Storage) GetAdminConfig(ctx context.Context) (AdminConfig, error) {
 	return cfg, err
 }
 
-func (s *Storage) SaveAdminConfig(ctx context.Context, cfg AdminConfig) error {
+// User Storage -- encrypted like the rest of the sensitive data. Multiple
+// users are supported with no role distinction (see User's doc comment).
+func (s *Storage) GetUsers(ctx context.Context) ([]User, error) {
+	key, err := sealKey(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var users []User
+	err = s.readEncrypted("users.json", key, &users)
+	if users == nil {
+		users = []User{}
+	}
+	return users, err
+}
+
+func (s *Storage) SaveUsers(ctx context.Context, users []User) error {
 	key, err := sealKey(ctx)
 	if err != nil {
 		return err
 	}
-	return s.writeEncrypted("admin.json", key, cfg)
+	return s.writeEncrypted("users.json", key, users)
 }
 
 // SealConfig Storage -- also unencrypted (it's the config that describes how

@@ -31,7 +31,7 @@ func findCredential(ctx context.Context, storage *Storage, id string) (Credentia
 	return Credential{}, false
 }
 
-func registerSSHRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManager, sealMgr *SealManager) {
+func registerSSHRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManager, sealMgr *SealManager, auditLog *AuditLogger) {
 	mux.HandleFunc("POST /api/ssh/exec", protected(authMgr, sealMgr, func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			HostID  string `json:"hostId"`
@@ -51,7 +51,9 @@ func registerSSHRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManage
 			writeError(w, http.StatusNotFound, "credential not found for host")
 			return
 		}
-		writeJSON(w, http.StatusOK, RunSSHCommand(host, cred, body.Command))
+		result := RunSSHCommand(host, cred, body.Command)
+		auditLog.Log(r.Context(), "ssh.exec", "host", host.ID, host.Name, body.Command)
+		writeJSON(w, http.StatusOK, result)
 	}))
 
 	mux.HandleFunc("GET /api/hosts/{id}/ping", protected(authMgr, sealMgr, func(w http.ResponseWriter, r *http.Request) {

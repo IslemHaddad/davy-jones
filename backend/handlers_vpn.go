@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 )
 
@@ -18,14 +19,16 @@ func findVpn(ctx context.Context, storage *Storage, id string) (Vpn, bool) {
 	return Vpn{}, false
 }
 
-func registerVPNRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManager, sealMgr *SealManager) {
+func registerVPNRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManager, sealMgr *SealManager, auditLog *AuditLogger) {
 	mux.HandleFunc("POST /api/vpns/{id}/docker/start", protected(authMgr, sealMgr, func(w http.ResponseWriter, r *http.Request) {
 		vpn, ok := findVpn(r.Context(), storage, r.PathValue("id"))
 		if !ok {
 			writeError(w, http.StatusNotFound, "vpn not found")
 			return
 		}
-		writeJSON(w, http.StatusOK, DockerStart(vpn.ClientContainer))
+		result := DockerStart(vpn.ClientContainer)
+		auditLog.Log(r.Context(), "vpn.docker.start", "vpn", vpn.ID, vpn.Name, "")
+		writeJSON(w, http.StatusOK, result)
 	}))
 
 	mux.HandleFunc("POST /api/vpns/{id}/docker/stop", protected(authMgr, sealMgr, func(w http.ResponseWriter, r *http.Request) {
@@ -34,7 +37,9 @@ func registerVPNRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManage
 			writeError(w, http.StatusNotFound, "vpn not found")
 			return
 		}
-		writeJSON(w, http.StatusOK, DockerStop(vpn.ClientContainer))
+		result := DockerStop(vpn.ClientContainer)
+		auditLog.Log(r.Context(), "vpn.docker.stop", "vpn", vpn.ID, vpn.Name, "")
+		writeJSON(w, http.StatusOK, result)
 	}))
 
 	mux.HandleFunc("GET /api/vpns/{id}/docker/status", protected(authMgr, sealMgr, func(w http.ResponseWriter, r *http.Request) {
@@ -59,7 +64,9 @@ func registerVPNRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManage
 			writeError(w, http.StatusBadRequest, "invalid body")
 			return
 		}
-		writeJSON(w, http.StatusOK, DockerExecPing(vpn.ClientContainer, body.TargetIP))
+		result := DockerExecPing(vpn.ClientContainer, body.TargetIP)
+		auditLog.Log(r.Context(), "vpn.docker.ping", "vpn", vpn.ID, vpn.Name, body.TargetIP)
+		writeJSON(w, http.StatusOK, result)
 	}))
 
 	mux.HandleFunc("POST /api/vpns/{id}/docker/nc", protected(authMgr, sealMgr, func(w http.ResponseWriter, r *http.Request) {
@@ -79,6 +86,8 @@ func registerVPNRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManage
 		if body.Port == 0 {
 			body.Port = 22
 		}
-		writeJSON(w, http.StatusOK, DockerExecNc(vpn.ClientContainer, body.TargetIP, body.Port))
+		result := DockerExecNc(vpn.ClientContainer, body.TargetIP, body.Port)
+		auditLog.Log(r.Context(), "vpn.docker.nc", "vpn", vpn.ID, vpn.Name, fmt.Sprintf("%s:%d", body.TargetIP, body.Port))
+		writeJSON(w, http.StatusOK, result)
 	}))
 }

@@ -4,6 +4,7 @@ import { useAuth } from "../../context/AuthContext";
 
 export function LoginScreen({ mode }: { mode: "needs-setup" | "locked" }) {
   const { setup, login, error } = useAuth();
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -15,6 +16,10 @@ export function LoginScreen({ mode }: { mode: "needs-setup" | "locked" }) {
     e.preventDefault();
     setLocalError(null);
 
+    if (username.trim().length === 0) {
+      setLocalError("Username is required.");
+      return;
+    }
     if (isSetup) {
       if (password.length < 6) {
         setLocalError("Password must be at least 6 characters long.");
@@ -29,9 +34,9 @@ export function LoginScreen({ mode }: { mode: "needs-setup" | "locked" }) {
     setSubmitting(true);
     try {
       if (isSetup) {
-        await setup(password);
+        await setup(username, password);
       } else {
-        await login(password);
+        await login(username, password);
       }
     } finally {
       setSubmitting(false);
@@ -50,19 +55,28 @@ export function LoginScreen({ mode }: { mode: "needs-setup" | "locked" }) {
             )}
           </div>
           <h1 className="text-sm font-semibold text-ink">
-            {isSetup ? "Create Admin Password" : "Unlock Control Center"}
+            {isSetup ? "Create Your Account" : "Unlock Control Center"}
           </h1>
           <p className="text-center text-xs text-ink-faint">
             {isSetup
-              ? "This password protects local access to your infrastructure data."
-              : "Enter your admin password to continue."}
+              ? "This account protects local access to your infrastructure data. You can add more accounts later."
+              : "Log in to continue."}
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
           <input
-            type="password"
+            type="text"
             autoFocus
+            autoComplete="username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="Username"
+            className="rounded border border-border bg-surface px-3 py-2 text-sm text-ink outline-none focus:border-border-strong"
+          />
+          <input
+            type="password"
+            autoComplete={isSetup ? "new-password" : "current-password"}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Password"
@@ -84,7 +98,9 @@ export function LoginScreen({ mode }: { mode: "needs-setup" | "locked" }) {
 
           <button
             type="submit"
-            disabled={submitting || password.length === 0}
+            disabled={
+              submitting || username.trim().length === 0 || password.length === 0
+            }
             className="mt-2 rounded bg-ink px-3 py-2 text-xs font-bold uppercase tracking-widest text-canvas transition-opacity disabled:opacity-40"
           >
             {submitting ? "Please wait..." : isSetup ? "Create & Unlock" : "Unlock"}

@@ -9,6 +9,7 @@ export interface Vpn {
   port: number; // default 10443
   clientCertificate: ClientCertificate;
   username: string;
+  projectId?: string;
 }
 
 export interface Host {
@@ -18,6 +19,7 @@ export interface Host {
   credentialId: string;
   vpnId?: string;
   port?: number; // SSH port; defaults to 22 (server-side) when unset
+  projectId?: string;
 }
 
 export type ServiceType = "Docker" | "Node" | "Nginx" | string;
@@ -27,6 +29,7 @@ export interface Service {
   name: string;
   type: ServiceType;
   hostId: string;
+  projectId?: string;
 }
 
 export interface Credential {
@@ -35,6 +38,15 @@ export interface Credential {
   username: string;
   password?: string;
   privateKey?: string;
+  passphrase?: string;
+  projectId?: string;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  description?: string;
+  createdAt: string;
 }
 
 export interface SSHResult {
@@ -56,6 +68,24 @@ export interface SavedCommand {
   hostId: string;
   name: string;
   command: string;
+}
+
+export interface User {
+  id: string;
+  username: string;
+  createdAt: string;
+}
+
+export interface AuditEntry {
+  id: string;
+  timestamp: string;
+  userId: string;
+  username: string;
+  action: string;
+  targetType?: string;
+  targetId?: string;
+  targetLabel?: string;
+  detail?: string;
 }
 
 export interface SealStatus {

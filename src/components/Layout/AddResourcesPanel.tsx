@@ -77,7 +77,13 @@ export function AddResourcesPanel(props: AddResourcesPanelProps) {
   );
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+export function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
   return (
     <label className="flex flex-col gap-1">
       <span className="text-[10px] uppercase tracking-widest text-ink-faint">
@@ -88,11 +94,11 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-const inputClass =
+export const inputClass =
   "rounded border border-border bg-surface px-2.5 py-1.5 text-xs text-ink outline-none focus:border-border-strong";
-const monoInputClass = `${inputClass} font-mono`;
+export const monoInputClass = `${inputClass} font-mono`;
 
-function SubmitButton({ label }: { label: string }) {
+export function SubmitButton({ label }: { label: string }) {
   return (
     <button
       type="submit"
@@ -372,6 +378,7 @@ const emptyCredentialForm = {
   username: "",
   password: "",
   privateKey: "",
+  passphrase: "",
 };
 
 function CredentialForm({
@@ -398,6 +405,7 @@ function CredentialForm({
       username: cred.username,
       password: cred.password ?? "",
       privateKey: cred.privateKey ?? "",
+      passphrase: cred.passphrase ?? "",
     });
     setError(null);
   }
@@ -420,6 +428,7 @@ function CredentialForm({
       username: form.username,
       password: form.password || undefined,
       privateKey: form.privateKey || undefined,
+      passphrase: form.passphrase || undefined,
     };
     if (editingId) {
       await onUpdate(editingId, payload);
@@ -464,6 +473,14 @@ function CredentialForm({
             className={`${monoInputClass} resize-none`}
             value={form.privateKey}
             onChange={(e) => setForm({ ...form, privateKey: e.target.value })}
+          />
+        </Field>
+        <Field label="Passphrase (only if the private key is encrypted)">
+          <input
+            type="password"
+            className={inputClass}
+            value={form.passphrase}
+            onChange={(e) => setForm({ ...form, passphrase: e.target.value })}
           />
         </Field>
 

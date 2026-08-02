@@ -2,7 +2,7 @@ package main
 
 import "net/http"
 
-func registerSavedCommandRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManager, sealMgr *SealManager) {
+func registerSavedCommandRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManager, sealMgr *SealManager, auditLog *AuditLogger) {
 	mux.HandleFunc("GET /api/saved-commands", protected(authMgr, sealMgr, func(w http.ResponseWriter, r *http.Request) {
 		cmds, err := storage.GetSavedCommands(r.Context())
 		if err != nil {
@@ -29,6 +29,7 @@ func registerSavedCommandRoutes(mux *http.ServeMux, storage *Storage, authMgr *A
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		auditLog.Log(r.Context(), "saved_command.create", "saved_command", c.ID, c.Name, "")
 		writeJSON(w, http.StatusCreated, c)
 	}))
 
@@ -61,6 +62,7 @@ func registerSavedCommandRoutes(mux *http.ServeMux, storage *Storage, authMgr *A
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		auditLog.Log(r.Context(), "saved_command.update", "saved_command", updated.ID, updated.Name, "")
 		writeJSON(w, http.StatusOK, updated)
 	}))
 
@@ -71,16 +73,20 @@ func registerSavedCommandRoutes(mux *http.ServeMux, storage *Storage, authMgr *A
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		var label string
 		out := cmds[:0]
 		for _, c := range cmds {
-			if c.ID != id {
-				out = append(out, c)
+			if c.ID == id {
+				label = c.Name
+				continue
 			}
+			out = append(out, c)
 		}
 		if err := storage.SaveSavedCommands(r.Context(), out); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		auditLog.Log(r.Context(), "saved_command.delete", "saved_command", id, label, "")
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	}))
 }

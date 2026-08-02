@@ -1,13 +1,24 @@
 import type {
+  AuditEntry,
   CommandResult,
   Credential,
   Host,
+  Project,
   SSHResult,
   SavedCommand,
   SealStatus,
   Service,
+  User,
   Vpn,
 } from "../types";
+
+// projectId is optional (unfiltered) but, when passed, "" means the
+// implicit "Unassigned" bucket -- so it's distinguished from "not passed"
+// via presence in the params object, not truthiness.
+function projectQuery(projectId?: string): string {
+  if (projectId === undefined) return "";
+  return `?projectId=${encodeURIComponent(projectId)}`;
+}
 
 // The frontend is served by the same Go binary in production (same origin,
 // relative paths) and proxied to it in dev (see vite.config.ts's
@@ -61,7 +72,8 @@ async function request<T>(
 
 export const api = {
   vpns: {
-    list: () => request<Vpn[]>("GET", "/api/vpns"),
+    list: (projectId?: string) =>
+      request<Vpn[]>("GET", `/api/vpns${projectQuery(projectId)}`),
     create: (vpn: Omit<Vpn, "id">) => request<Vpn>("POST", "/api/vpns", vpn),
     update: (id: string, vpn: Omit<Vpn, "id">) =>
       request<Vpn>("PUT", `/api/vpns/${id}`, vpn),
@@ -70,7 +82,8 @@ export const api = {
   },
 
   hosts: {
-    list: () => request<Host[]>("GET", "/api/hosts"),
+    list: (projectId?: string) =>
+      request<Host[]>("GET", `/api/hosts${projectQuery(projectId)}`),
     create: (host: Omit<Host, "id">) =>
       request<Host>("POST", "/api/hosts", host),
     update: (id: string, host: Omit<Host, "id">) =>
@@ -82,7 +95,8 @@ export const api = {
   },
 
   services: {
-    list: () => request<Service[]>("GET", "/api/services"),
+    list: (projectId?: string) =>
+      request<Service[]>("GET", `/api/services${projectQuery(projectId)}`),
     create: (service: Omit<Service, "id">) =>
       request<Service>("POST", "/api/services", service),
     update: (id: string, service: Omit<Service, "id">) =>
@@ -92,13 +106,32 @@ export const api = {
   },
 
   credentials: {
-    list: () => request<Credential[]>("GET", "/api/credentials"),
+    list: (projectId?: string) =>
+      request<Credential[]>(
+        "GET",
+        `/api/credentials${projectQuery(projectId)}`,
+      ),
     create: (credential: Omit<Credential, "id">) =>
       request<Credential>("POST", "/api/credentials", credential),
     update: (id: string, credential: Omit<Credential, "id">) =>
       request<Credential>("PUT", `/api/credentials/${id}`, credential),
     remove: (id: string) =>
       request<{ ok: boolean }>("DELETE", `/api/credentials/${id}`),
+  },
+
+  projects: {
+    list: () => request<Project[]>("GET", "/api/projects"),
+    create: (project: Omit<Project, "id" | "createdAt">) =>
+      request<Project>("POST", "/api/projects", project),
+    update: (id: string, project: Omit<Project, "id" | "createdAt">) =>
+      request<Project>("PUT", `/api/projects/${id}`, project),
+    remove: (id: string) =>
+      request<{ ok: boolean }>("DELETE", `/api/projects/${id}`),
+    exportEvent: (id: string, format: "uml" | "json", includeSecrets: boolean) =>
+      request<{ ok: boolean }>("POST", `/api/projects/${id}/export`, {
+        format,
+        includeSecrets,
+      }),
   },
 
   // Public: no session, no unseal requirement. Possession of a threshold of
@@ -121,14 +154,41 @@ export const api = {
 
   auth: {
     status: () => request<{ isSetup: boolean }>("GET", "/api/auth/status"),
-    setup: (password: string) =>
-      request<{ ok: boolean }>("POST", "/api/auth/setup", { password }),
-    login: (password: string) =>
-      request<{ token: string }>("POST", "/api/auth/login", { password }),
+    setup: (username: string, password: string) =>
+      request<{ ok: boolean }>("POST", "/api/auth/setup", {
+        username,
+        password,
+      }),
+    login: (username: string, password: string) =>
+      request<{ token: string; user: User }>("POST", "/api/auth/login", {
+        username,
+        password,
+      }),
     logout: (token: string) =>
       request<{ ok: boolean }>("POST", "/api/auth/logout", { token }),
     validate: (token: string) =>
-      request<{ valid: boolean }>("POST", "/api/auth/validate", { token }),
+      request<{ valid: boolean; user?: User }>("POST", "/api/auth/validate", {
+        token,
+      }),
+  },
+
+  users: {
+    list: () => request<User[]>("GET", "/api/users"),
+    create: (username: string, password: string) =>
+      request<User>("POST", "/api/users", { username, password }),
+    remove: (id: string) =>
+      request<{ ok: boolean }>("DELETE", `/api/users/${id}`),
+  },
+
+  audit: {
+    list: (params?: { limit?: number; userId?: string; action?: string }) => {
+      const qs = new URLSearchParams();
+      if (params?.limit) qs.set("limit", String(params.limit));
+      if (params?.userId) qs.set("userId", params.userId);
+      if (params?.action) qs.set("action", params.action);
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return request<AuditEntry[]>("GET", `/api/audit${suffix}`);
+    },
   },
 
   ssh: {

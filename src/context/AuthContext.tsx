@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { api, setAuthToken } from "../lib/api";
-import type { SealStatus } from "../types";
+import type { SealStatus, User } from "../types";
 
 const TOKEN_STORAGE_KEY = "dcc_session_token";
 
@@ -24,10 +24,11 @@ interface AuthContextValue {
   error: string | null;
   sealStatus: SealStatus | null;
   freshShares: string[] | null;
+  currentUser: User | null;
   initializeSeal: () => Promise<void>;
   submitShare: (share: string) => Promise<void>;
-  setup: (password: string) => Promise<void>;
-  login: (password: string) => Promise<void>;
+  setup: (username: string, password: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -38,6 +39,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [sealStatus, setSealStatus] = useState<SealStatus | null>(null);
   const [freshShares, setFreshShares] = useState<string[] | null>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
 
   const evaluate = useCallback(async () => {
     try {
@@ -61,9 +63,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const stored = localStorage.getItem(TOKEN_STORAGE_KEY);
       if (stored) {
-        const { valid } = await api.auth.validate(stored);
+        const { valid, user } = await api.auth.validate(stored);
         if (valid) {
           setAuthToken(stored);
+          setCurrentUser(user ?? null);
           setPhase("ready");
           return;
         }
@@ -107,25 +110,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [evaluate],
   );
 
-  const setup = useCallback(async (password: string) => {
+  const setup = useCallback(async (username: string, password: string) => {
     setError(null);
     try {
-      await api.auth.setup(password);
-      const { token } = await api.auth.login(password);
+      await api.auth.setup(username, password);
+      const { token, user } = await api.auth.login(username, password);
       localStorage.setItem(TOKEN_STORAGE_KEY, token);
       setAuthToken(token);
+      setCurrentUser(user);
       setPhase("ready");
     } catch (e) {
       setError(String(e));
     }
   }, []);
 
-  const login = useCallback(async (password: string) => {
+  const login = useCallback(async (username: string, password: string) => {
     setError(null);
     try {
-      const { token } = await api.auth.login(password);
+      const { token, user } = await api.auth.login(username, password);
       localStorage.setItem(TOKEN_STORAGE_KEY, token);
       setAuthToken(token);
+      setCurrentUser(user);
       setPhase("ready");
     } catch (e) {
       setError(String(e));
@@ -143,6 +148,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     localStorage.removeItem(TOKEN_STORAGE_KEY);
     setAuthToken(null);
+    setCurrentUser(null);
     setPhase("locked");
   }, []);
 
@@ -153,6 +159,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         error,
         sealStatus,
         freshShares,
+        currentUser,
         initializeSeal,
         submitShare,
         setup,

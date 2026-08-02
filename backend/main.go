@@ -29,15 +29,19 @@ func main() {
 	} else {
 		log.Printf("not yet initialized: POST /api/seal/initialize to generate key shares")
 	}
+	auditLog := NewAuditLogger(cfg.DataDir)
 
 	mux := http.NewServeMux()
 	registerSealRoutes(mux, sealMgr)
-	registerAuthRoutes(mux, authMgr, sealMgr)
-	registerConfigRoutes(mux, storage, authMgr, sealMgr)
-	registerSSHRoutes(mux, storage, authMgr, sealMgr)
-	registerVPNRoutes(mux, storage, authMgr, sealMgr)
-	registerSavedCommandRoutes(mux, storage, authMgr, sealMgr)
-	registerTerminalRoutes(mux, storage, authMgr, sealMgr)
+	registerAuthRoutes(mux, authMgr, sealMgr, auditLog)
+	registerUserRoutes(mux, authMgr, sealMgr, auditLog)
+	registerProjectRoutes(mux, storage, authMgr, sealMgr, auditLog)
+	registerConfigRoutes(mux, storage, authMgr, sealMgr, auditLog)
+	registerSSHRoutes(mux, storage, authMgr, sealMgr, auditLog)
+	registerVPNRoutes(mux, storage, authMgr, sealMgr, auditLog)
+	registerSavedCommandRoutes(mux, storage, authMgr, sealMgr, auditLog)
+	registerTerminalRoutes(mux, storage, authMgr, sealMgr, auditLog)
+	registerAuditRoutes(mux, auditLog, authMgr, sealMgr)
 
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})

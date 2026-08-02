@@ -8,7 +8,7 @@ import type {
   Vpn,
 } from "../types";
 
-export function useInfraData() {
+export function useInfraData(projectId: string) {
   const [vpns, setVpns] = useState<Vpn[]>([]);
   const [hosts, setHosts] = useState<Host[]>([]);
   const [services, setServices] = useState<Service[]>([]);
@@ -21,10 +21,10 @@ export function useInfraData() {
     setError(null);
     try {
       const [v, h, s, c, sc] = await Promise.all([
-        api.vpns.list(),
-        api.hosts.list(),
-        api.services.list(),
-        api.credentials.list(),
+        api.vpns.list(projectId),
+        api.hosts.list(projectId),
+        api.services.list(projectId),
+        api.credentials.list(projectId),
         api.savedCommands.list(),
       ]);
       setVpns(v);
@@ -37,7 +37,7 @@ export function useInfraData() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [projectId]);
 
   useEffect(() => {
     reload();
@@ -45,31 +45,31 @@ export function useInfraData() {
 
   const createVpn = useCallback(
     async (vpn: Omit<Vpn, "id">) => {
-      await api.vpns.create(vpn);
+      await api.vpns.create({ ...vpn, projectId });
       await reload();
     },
-    [reload],
+    [reload, projectId],
   );
   const createHost = useCallback(
     async (host: Omit<Host, "id">) => {
-      await api.hosts.create(host);
+      await api.hosts.create({ ...host, projectId });
       await reload();
     },
-    [reload],
+    [reload, projectId],
   );
   const createService = useCallback(
     async (service: Omit<Service, "id">) => {
-      await api.services.create(service);
+      await api.services.create({ ...service, projectId });
       await reload();
     },
-    [reload],
+    [reload, projectId],
   );
   const createCredential = useCallback(
     async (credential: Omit<Credential, "id">) => {
-      await api.credentials.create(credential);
+      await api.credentials.create({ ...credential, projectId });
       await reload();
     },
-    [reload],
+    [reload, projectId],
   );
   const updateCredential = useCallback(
     async (id: string, credential: Omit<Credential, "id">) => {

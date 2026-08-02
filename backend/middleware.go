@@ -12,11 +12,12 @@ import (
 func requireSession(authMgr *AuthManager, h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := bearerToken(r)
-		if token == "" || !authMgr.ValidateSession(token) {
+		sess, ok := authMgr.ValidateSession(token)
+		if token == "" || !ok {
 			writeError(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
-		h(w, r)
+		h(w, r.WithContext(withUser(r.Context(), sess.UserID, sess.Username)))
 	}
 }
 

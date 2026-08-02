@@ -1,14 +1,35 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Header } from "./Layout/Header";
 import { Sidebar } from "./Layout/Sidebar";
 import { InfraGraph } from "./Graph/InfraGraph";
 import { TerminalTray } from "./Terminal/TerminalTray";
 import { useInfraData } from "../hooks/useInfraData";
+import { useProjects } from "../hooks/useProjects";
 import { usePingStatus } from "../hooks/usePingStatus";
 import type { SelectedNode, TerminalTab } from "../types";
 
+const ACTIVE_PROJECT_KEY = "dcc_active_project";
+
 export function Dashboard() {
-  const data = useInfraData();
+  const projects = useProjects();
+  const [activeProjectId, setActiveProjectId] = useState(
+    () => localStorage.getItem(ACTIVE_PROJECT_KEY) ?? "",
+  );
+
+  useEffect(() => {
+    localStorage.setItem(ACTIVE_PROJECT_KEY, activeProjectId);
+  }, [activeProjectId]);
+
+  // If the stored project was deleted elsewhere, fall back to Unassigned
+  // rather than silently querying a project id that no longer exists.
+  useEffect(() => {
+    if (projects.loading || activeProjectId === "") return;
+    if (!projects.projects.some((p) => p.id === activeProjectId)) {
+      setActiveProjectId("");
+    }
+  }, [projects.loading, projects.projects, activeProjectId]);
+
+  const data = useInfraData(activeProjectId);
   const pingStatus = usePingStatus(data.hosts);
   const [selected, setSelected] = useState<SelectedNode | null>(null);
 
@@ -53,7 +74,15 @@ export function Dashboard() {
 
   return (
     <div className="flex h-screen w-screen flex-col bg-canvas">
-      <Header />
+      <Header
+        projects={projects.projects}
+        activeProjectId={activeProjectId}
+        onChangeProject={setActiveProjectId}
+        onCreateProject={projects.createProject}
+        onUpdateProject={projects.updateProject}
+        onDeleteProject={projects.deleteProject}
+        onProjectsChanged={projects.reload}
+      />
       <div className="flex flex-1 overflow-hidden">
         <main className="relative flex-1">
           {data.loading ? (

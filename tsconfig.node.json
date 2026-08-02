@@ -5,7 +5,13 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true,
-    "strict": true
+    "strict": true,
+    // Composite projects can't fully disable emit, but nothing consumes
+    // this output -- Vite always loads vite.config.ts directly. Redirect it
+    // out of the project root so `tsc -b` can never again emit a
+    // vite.config.js that silently shadows vite.config.ts (Vite's config
+    // resolver checks .js before .ts).
+    "outDir": "node_modules/.tsc-out"
   },
   "include": ["vite.config.ts"]
 }

@@ -66,7 +66,7 @@ func (w wsOutputWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func registerTerminalRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManager, sealMgr *SealManager) {
+func registerTerminalRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManager, sealMgr *SealManager, auditLog *AuditLogger) {
 	mux.HandleFunc("GET /api/ws/ssh/session", func(w http.ResponseWriter, r *http.Request) {
 		rawConn, err := wsUpgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -87,7 +87,8 @@ func registerTerminalRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthM
 		}
 		rawConn.SetReadDeadline(time.Time{})
 
-		if !authMgr.ValidateSession(first.Token) {
+		sess, ok := authMgr.ValidateSession(first.Token)
+		if !ok {
 			conn.writeControl(map[string]string{"type": "error", "message": "unauthorized"})
 			return
 		}
@@ -97,7 +98,7 @@ func registerTerminalRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthM
 			conn.writeControl(map[string]string{"type": "error", "message": "sealed"})
 			return
 		}
-		ctx := withSealKey(r.Context(), key)
+		ctx := withUser(withSealKey(r.Context(), key), sess.UserID, sess.Username)
 
 		host, ok := findHost(ctx, storage, first.HostID)
 		if !ok {
@@ -172,6 +173,12 @@ func registerTerminalRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthM
 		}
 
 		conn.writeControl(map[string]string{"type": "ready"})
+
+		if first.Command == "" {
+			auditLog.Log(ctx, "ssh.shell.open", "host", host.ID, host.Name, "")
+		} else {
+			auditLog.Log(ctx, "ssh.command.run", "host", host.ID, host.Name, first.Command)
+		}
 
 		go func() {
 			session.Wait()
