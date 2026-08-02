@@ -3,14 +3,23 @@ package main
 import "time"
 
 type Vpn struct {
-	ID                string `json:"id"`
-	Name              string `json:"name"`
-	Network           string `json:"network"` // CIDR
-	ClientContainer   string `json:"clientContainer"`
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Image string `json:"image"` // docker image the client runs from, e.g. "openforti-runner"
+	// ContainerName is the fixed name Start/Stop/Status/Logs/Ping/Nc all
+	// target, e.g. "dj-vpn-oran". Explicit and user-defined rather than
+	// derived, so it stays stable and visible instead of a hidden internal
+	// value.
+	ContainerName string `json:"containerName"`
+	// Command is the shell command run on Start, e.g.
+	// `docker run -d --name {{container}} --net=host --privileged -e VPN_HOST={{host}} ... {{image}}`.
+	// Placeholders {{host}} {{port}} {{user}} {{pass}} {{image}} {{container}}
+	// are substituted (shell-escaped) before execution.
+	Command           string `json:"command"`
 	RemoteGateway     string `json:"remoteGateway"`
 	Port              int    `json:"port"`              // default 10443
 	ClientCertificate string `json:"clientCertificate"` // none|local|smartcard
-	Username          string `json:"username"`
+	CredentialID      string `json:"credentialId,omitempty"`
 	ProjectID         string `json:"projectId,omitempty"` // "" == Unassigned
 }
 
@@ -44,12 +53,19 @@ type Credential struct {
 
 // Project groups vpns/hosts/services/credentials that belong to one
 // client/environment -- e.g. "Client A" vs "Client B". Resources with an
-// empty ProjectID show up under the implicit "Unassigned" bucket; there is
-// no migration that backfills existing data into a real project.
+// empty ProjectID show up under the implicit "Unassigned" bucket (open to
+// every user -- there is no owner to restrict it to); there is no
+// migration that backfills existing data into a real project.
+//
+// MemberIDs is the project's access list: only these users can see or
+// touch the project and anything tagged with its ID (see access.go). The
+// creator is seeded as the first member; membership itself can only be
+// changed by an existing member, so an outsider can't add themselves.
 type Project struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
 	Description string    `json:"description,omitempty"`
+	MemberIDs   []string  `json:"memberIds,omitempty"`
 	CreatedAt   time.Time `json:"createdAt"`
 }
 

@@ -23,7 +23,7 @@ export function VpnNode({ data, selected }: NodeProps & { data: VpnNodeData }) {
       <div className="mt-2 flex items-center justify-between">
         <span className="section-header text-vpn">VPN</span>
         <span className="font-mono text-[11px] text-ink-muted">
-          {vpn.network}
+          {vpn.remoteGateway}
         </span>
       </div>
       <Handle

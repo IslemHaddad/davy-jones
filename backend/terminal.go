@@ -105,6 +105,10 @@ func registerTerminalRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthM
 			conn.writeControl(map[string]string{"type": "error", "message": "host not found"})
 			return
 		}
+		if !canAccessProject(ctx, storage, host.ProjectID) {
+			conn.writeControl(map[string]string{"type": "error", "message": "not a member of this project"})
+			return
+		}
 		cred, ok := findCredential(ctx, storage, host.CredentialID)
 		if !ok {
 			conn.writeControl(map[string]string{"type": "error", "message": "credential not found"})

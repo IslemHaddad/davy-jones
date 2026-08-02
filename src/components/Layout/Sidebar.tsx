@@ -24,6 +24,9 @@ interface SidebarProps {
   onCreateHost: (host: Omit<Host, "id">) => Promise<void>;
   onCreateService: (service: Omit<Service, "id">) => Promise<void>;
   onCreateCredential: (credential: Omit<Credential, "id">) => Promise<void>;
+  onUpdateVpn: (id: string, vpn: Omit<Vpn, "id">) => Promise<void>;
+  onUpdateHost: (id: string, host: Omit<Host, "id">) => Promise<void>;
+  onUpdateService: (id: string, service: Omit<Service, "id">) => Promise<void>;
   onUpdateCredential: (
     id: string,
     credential: Omit<Credential, "id">,
@@ -84,12 +87,19 @@ export function Sidebar(props: SidebarProps) {
           <AddResourcesPanel
             vpns={props.vpns}
             hosts={props.hosts}
+            services={props.services}
             credentials={props.credentials}
             onCreateVpn={props.onCreateVpn}
             onCreateHost={props.onCreateHost}
             onCreateService={props.onCreateService}
             onCreateCredential={props.onCreateCredential}
+            onUpdateVpn={props.onUpdateVpn}
+            onUpdateHost={props.onUpdateHost}
+            onUpdateService={props.onUpdateService}
             onUpdateCredential={props.onUpdateCredential}
+            onDeleteVpn={props.onDeleteVpn}
+            onDeleteHost={props.onDeleteHost}
+            onDeleteService={props.onDeleteService}
             onDeleteCredential={props.onDeleteCredential}
           />
         )}

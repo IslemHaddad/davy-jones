@@ -1,24 +1,59 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 )
 
-// filterByProjectID narrows items to the ?projectId= query param, when
-// present. Absent entirely -> unfiltered (back-compat / cross-project
-// tooling). Present but empty -> the "Unassigned" bucket (items whose
-// ProjectID is ""). Filtering happens server-side rather than in the
+// provisionVpnContainer (re)builds a VPN's docker container right after
+// it's created or edited, so Start/Stop afterward just toggle an
+// already-existing container instead of building one from scratch on every
+// click. Best-effort: a docker failure here doesn't fail the request, since
+// the VPN's config is already saved -- it's recorded in the audit log so
+// it's visible without blocking on it.
+func provisionVpnContainer(ctx context.Context, storage *Storage, auditLog *AuditLogger, v Vpn) {
+	var cred Credential
+	if v.CredentialID != "" {
+		if c, ok := findCredential(ctx, storage, v.CredentialID); ok {
+			cred = c
+		}
+	}
+	result := DockerProvision(v, cred)
+	detail := fmt.Sprintf("exit=%d", result.ExitCode)
+	if result.Error != "" {
+		detail = result.Error
+	} else if result.ExitCode != 0 && result.Stderr != "" {
+		detail = result.Stderr
+	}
+	auditLog.Log(ctx, "vpn.docker.provision", "vpn", v.ID, v.Name, detail)
+}
+
+// filterByProjectAccess narrows items to what the caller may see: an exact
+// match to ?projectId= when present (the caller's access to that specific
+// project is checked by the handler before calling this), or -- when
+// absent -- everything in Unassigned plus every project the caller
+// belongs to. Before project access control existed, an absent projectId
+// meant "unfiltered" outright; now that projects restrict access, "no
+// filter" must never leak a restricted project's items, so it's resolved
+// per-item instead. Filtering happens server-side rather than in the
 // browser specifically because these lists include SSH passwords/private
 // keys (Credential) -- no reason to ship another project's secrets over
 // the wire when this is a few lines.
-func filterByProjectID[T any](r *http.Request, items []T, projectID func(T) string) []T {
-	if !r.URL.Query().Has("projectId") {
-		return items
+func filterByProjectAccess[T any](r *http.Request, storage *Storage, items []T, projectID func(T) string) []T {
+	if r.URL.Query().Has("projectId") {
+		pid := r.URL.Query().Get("projectId")
+		out := items[:0]
+		for _, it := range items {
+			if projectID(it) == pid {
+				out = append(out, it)
+			}
+		}
+		return out
 	}
-	pid := r.URL.Query().Get("projectId")
 	out := items[:0]
 	for _, it := range items {
-		if projectID(it) == pid {
+		if canAccessProject(r.Context(), storage, projectID(it)) {
 			out = append(out, it)
 		}
 	}
@@ -28,18 +63,26 @@ func filterByProjectID[T any](r *http.Request, items []T, projectID func(T) stri
 func registerConfigRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManager, sealMgr *SealManager, auditLog *AuditLogger) {
 	// VPNs
 	mux.HandleFunc("GET /api/vpns", protected(authMgr, sealMgr, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Has("projectId") && !canAccessProject(r.Context(), storage, r.URL.Query().Get("projectId")) {
+			writeProjectForbidden(w)
+			return
+		}
 		vpns, err := storage.GetVpns(r.Context())
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		vpns = filterByProjectID(r, vpns, func(v Vpn) string { return v.ProjectID })
+		vpns = filterByProjectAccess(r, storage, vpns, func(v Vpn) string { return v.ProjectID })
 		writeJSON(w, http.StatusOK, vpns)
 	}))
 	mux.HandleFunc("POST /api/vpns", protected(authMgr, sealMgr, func(w http.ResponseWriter, r *http.Request) {
 		var v Vpn
 		if err := readJSON(r, &v); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid body")
+			return
+		}
+		if !canAccessProject(r.Context(), storage, v.ProjectID) {
+			writeProjectForbidden(w)
 			return
 		}
 		if v.Port == 0 {
@@ -57,6 +100,7 @@ func registerConfigRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMan
 			return
 		}
 		auditLog.Log(r.Context(), "vpn.create", "vpn", v.ID, v.Name, "")
+		provisionVpnContainer(r.Context(), storage, auditLog, v)
 		writeJSON(w, http.StatusCreated, v)
 	}))
 	mux.HandleFunc("PUT /api/vpns/{id}", protected(authMgr, sealMgr, func(w http.ResponseWriter, r *http.Request) {
@@ -74,6 +118,10 @@ func registerConfigRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMan
 		found := false
 		for i := range vpns {
 			if vpns[i].ID == id {
+				if !canAccessProject(r.Context(), storage, vpns[i].ProjectID) || !canAccessProject(r.Context(), storage, updated.ProjectID) {
+					writeProjectForbidden(w)
+					return
+				}
 				updated.ID = id
 				vpns[i] = updated
 				found = true
@@ -89,6 +137,7 @@ func registerConfigRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMan
 			return
 		}
 		auditLog.Log(r.Context(), "vpn.update", "vpn", updated.ID, updated.Name, "")
+		provisionVpnContainer(r.Context(), storage, auditLog, updated)
 		writeJSON(w, http.StatusOK, updated)
 	}))
 	mux.HandleFunc("DELETE /api/vpns/{id}", protected(authMgr, sealMgr, func(w http.ResponseWriter, r *http.Request) {
@@ -98,37 +147,58 @@ func registerConfigRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMan
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		var label string
-		out := vpns[:0]
+		var deleted Vpn
+		var found bool
 		for _, v := range vpns {
 			if v.ID == id {
-				label = v.Name
-				continue
+				deleted = v
+				found = true
+				break
 			}
-			out = append(out, v)
+		}
+		if found && !canAccessProject(r.Context(), storage, deleted.ProjectID) {
+			writeProjectForbidden(w)
+			return
+		}
+		out := vpns[:0]
+		for _, v := range vpns {
+			if v.ID != id {
+				out = append(out, v)
+			}
+		}
+		if found {
+			DockerRemove(deleted)
 		}
 		if err := storage.SaveVpns(r.Context(), out); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		auditLog.Log(r.Context(), "vpn.delete", "vpn", id, label, "")
+		auditLog.Log(r.Context(), "vpn.delete", "vpn", id, deleted.Name, "")
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	}))
 
 	// Hosts
 	mux.HandleFunc("GET /api/hosts", protected(authMgr, sealMgr, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Has("projectId") && !canAccessProject(r.Context(), storage, r.URL.Query().Get("projectId")) {
+			writeProjectForbidden(w)
+			return
+		}
 		hosts, err := storage.GetHosts(r.Context())
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		hosts = filterByProjectID(r, hosts, func(h Host) string { return h.ProjectID })
+		hosts = filterByProjectAccess(r, storage, hosts, func(h Host) string { return h.ProjectID })
 		writeJSON(w, http.StatusOK, hosts)
 	}))
 	mux.HandleFunc("POST /api/hosts", protected(authMgr, sealMgr, func(w http.ResponseWriter, r *http.Request) {
 		var h Host
 		if err := readJSON(r, &h); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid body")
+			return
+		}
+		if !canAccessProject(r.Context(), storage, h.ProjectID) {
+			writeProjectForbidden(w)
 			return
 		}
 		h.ID = newID("host")
@@ -160,6 +230,10 @@ func registerConfigRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMan
 		found := false
 		for i := range hosts {
 			if hosts[i].ID == id {
+				if !canAccessProject(r.Context(), storage, hosts[i].ProjectID) || !canAccessProject(r.Context(), storage, updated.ProjectID) {
+					writeProjectForbidden(w)
+					return
+				}
 				updated.ID = id
 				hosts[i] = updated
 				found = true
@@ -185,13 +259,25 @@ func registerConfigRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMan
 			return
 		}
 		var label string
-		out := hosts[:0]
+		var existingProjectID string
+		var found bool
 		for _, h := range hosts {
 			if h.ID == id {
 				label = h.Name
-				continue
+				existingProjectID = h.ProjectID
+				found = true
+				break
 			}
-			out = append(out, h)
+		}
+		if found && !canAccessProject(r.Context(), storage, existingProjectID) {
+			writeProjectForbidden(w)
+			return
+		}
+		out := hosts[:0]
+		for _, h := range hosts {
+			if h.ID != id {
+				out = append(out, h)
+			}
 		}
 		if err := storage.SaveHosts(r.Context(), out); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -203,18 +289,26 @@ func registerConfigRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMan
 
 	// Services
 	mux.HandleFunc("GET /api/services", protected(authMgr, sealMgr, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Has("projectId") && !canAccessProject(r.Context(), storage, r.URL.Query().Get("projectId")) {
+			writeProjectForbidden(w)
+			return
+		}
 		services, err := storage.GetServices(r.Context())
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		services = filterByProjectID(r, services, func(s Service) string { return s.ProjectID })
+		services = filterByProjectAccess(r, storage, services, func(s Service) string { return s.ProjectID })
 		writeJSON(w, http.StatusOK, services)
 	}))
 	mux.HandleFunc("POST /api/services", protected(authMgr, sealMgr, func(w http.ResponseWriter, r *http.Request) {
 		var s Service
 		if err := readJSON(r, &s); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid body")
+			return
+		}
+		if !canAccessProject(r.Context(), storage, s.ProjectID) {
+			writeProjectForbidden(w)
 			return
 		}
 		s.ID = newID("svc")
@@ -246,6 +340,10 @@ func registerConfigRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMan
 		found := false
 		for i := range services {
 			if services[i].ID == id {
+				if !canAccessProject(r.Context(), storage, services[i].ProjectID) || !canAccessProject(r.Context(), storage, updated.ProjectID) {
+					writeProjectForbidden(w)
+					return
+				}
 				updated.ID = id
 				services[i] = updated
 				found = true
@@ -271,13 +369,25 @@ func registerConfigRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMan
 			return
 		}
 		var label string
-		out := services[:0]
+		var existingProjectID string
+		var found bool
 		for _, s := range services {
 			if s.ID == id {
 				label = s.Name
-				continue
+				existingProjectID = s.ProjectID
+				found = true
+				break
 			}
-			out = append(out, s)
+		}
+		if found && !canAccessProject(r.Context(), storage, existingProjectID) {
+			writeProjectForbidden(w)
+			return
+		}
+		out := services[:0]
+		for _, s := range services {
+			if s.ID != id {
+				out = append(out, s)
+			}
 		}
 		if err := storage.SaveServices(r.Context(), out); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -289,12 +399,16 @@ func registerConfigRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMan
 
 	// Credentials
 	mux.HandleFunc("GET /api/credentials", protected(authMgr, sealMgr, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Has("projectId") && !canAccessProject(r.Context(), storage, r.URL.Query().Get("projectId")) {
+			writeProjectForbidden(w)
+			return
+		}
 		creds, err := storage.GetCredentials(r.Context())
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		creds = filterByProjectID(r, creds, func(c Credential) string { return c.ProjectID })
+		creds = filterByProjectAccess(r, storage, creds, func(c Credential) string { return c.ProjectID })
 		writeJSON(w, http.StatusOK, creds)
 	}))
 	mux.HandleFunc("POST /api/credentials", protected(authMgr, sealMgr, func(w http.ResponseWriter, r *http.Request) {
@@ -305,6 +419,10 @@ func registerConfigRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMan
 		}
 		if c.Password == "" && c.PrivateKey == "" {
 			writeError(w, http.StatusBadRequest, "credential needs a password or a private key")
+			return
+		}
+		if !canAccessProject(r.Context(), storage, c.ProjectID) {
+			writeProjectForbidden(w)
 			return
 		}
 		c.ID = newID("cred")
@@ -340,6 +458,10 @@ func registerConfigRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMan
 		found := false
 		for i := range creds {
 			if creds[i].ID == id {
+				if !canAccessProject(r.Context(), storage, creds[i].ProjectID) || !canAccessProject(r.Context(), storage, updated.ProjectID) {
+					writeProjectForbidden(w)
+					return
+				}
 				updated.ID = id
 				creds[i] = updated
 				found = true
@@ -365,13 +487,25 @@ func registerConfigRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMan
 			return
 		}
 		var label string
-		out := creds[:0]
+		var existingProjectID string
+		var found bool
 		for _, c := range creds {
 			if c.ID == id {
 				label = c.Name
-				continue
+				existingProjectID = c.ProjectID
+				found = true
+				break
 			}
-			out = append(out, c)
+		}
+		if found && !canAccessProject(r.Context(), storage, existingProjectID) {
+			writeProjectForbidden(w)
+			return
+		}
+		out := creds[:0]
+		for _, c := range creds {
+			if c.ID != id {
+				out = append(out, c)
+			}
 		}
 		if err := storage.SaveCredentials(r.Context(), out); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())

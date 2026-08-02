@@ -11,6 +11,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import type { Host, Service, Vpn } from "../../types";
 import type { PingStatus } from "../../hooks/usePingStatus";
+import { useTheme } from "../../context/ThemeContext";
 import { buildGraphLayout } from "./layout";
 import { VpnNode } from "./nodes/VpnNode";
 import { HostNode } from "./nodes/HostNode";
@@ -36,6 +37,7 @@ export function InfraGraph({
   selected,
   onSelect,
 }: InfraGraphProps) {
+  const { theme } = useTheme();
   const layout = useMemo(
     () => buildGraphLayout(vpns, hosts, services, pingStatus),
     [vpns, hosts, services, pingStatus],
@@ -45,10 +47,19 @@ export function InfraGraph({
   const [edges, setEdges, onEdgesChange] = useEdgesState(layout.edges);
 
   // Re-sync when the underlying infra data changes shape (new/removed
-  // resources); manual drag positions from the user are preserved via
-  // useNodesState's internal diffing keyed on node id.
+  // resources, ping status, etc). setNodes is a plain replace -- it does
+  // NOT preserve anything on its own -- so a dragged node's position has
+  // to be explicitly carried over from the previous node list here,
+  // keyed by id; only genuinely new nodes get the freshly computed
+  // default position.
   useEffect(() => {
-    setNodes(layout.nodes);
+    setNodes((prev) => {
+      const prevById = new Map(prev.map((n) => [n.id, n]));
+      return layout.nodes.map((n) => {
+        const existing = prevById.get(n.id);
+        return existing ? { ...n, position: existing.position } : n;
+      });
+    });
     setEdges(layout.edges);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layout]);
@@ -75,12 +86,16 @@ export function InfraGraph({
       }}
       onPaneClick={() => onSelect(null)}
       className="bg-canvas"
-      colorMode="dark"
+      colorMode={theme}
       fitView
       minZoom={0.3}
       maxZoom={1.5}
     >
-      <Background variant={BackgroundVariant.Dots} color="#222222" gap={24} />
+      <Background
+        variant={BackgroundVariant.Dots}
+        color={theme === "dark" ? "#222222" : "#d4d4d4"}
+        gap={24}
+      />
       <Controls
         className="!border !border-border !bg-card [&>button]:!border-border [&>button]:!bg-card [&>button]:!fill-ink [&>button]:hover:!bg-surface"
         showInteractive={false}

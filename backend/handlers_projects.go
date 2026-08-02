@@ -13,7 +13,14 @@ func registerProjectRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMa
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, projects)
+		userID, _, _ := userFromContext(r.Context())
+		visible := projects[:0]
+		for _, p := range projects {
+			if isProjectMember(p, userID) {
+				visible = append(visible, p)
+			}
+		}
+		writeJSON(w, http.StatusOK, visible)
 	}))
 
 	mux.HandleFunc("POST /api/projects", protected(authMgr, sealMgr, func(w http.ResponseWriter, r *http.Request) {
@@ -24,6 +31,11 @@ func registerProjectRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMa
 		}
 		p.ID = newID("project")
 		p.CreatedAt = time.Now()
+		// The creator is always the first (and, at creation time, only)
+		// member -- ignore whatever the client sent so nobody can seed a
+		// project pre-populated with other people's access.
+		userID, _, _ := userFromContext(r.Context())
+		p.MemberIDs = []string{userID}
 		projects, err := storage.GetProjects(r.Context())
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -45,6 +57,10 @@ func registerProjectRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMa
 			writeError(w, http.StatusBadRequest, "invalid body")
 			return
 		}
+		if len(updated.MemberIDs) == 0 {
+			writeError(w, http.StatusBadRequest, "a project must keep at least one member")
+			return
+		}
 		projects, err := storage.GetProjects(r.Context())
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -53,6 +69,11 @@ func registerProjectRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMa
 		found := false
 		for i := range projects {
 			if projects[i].ID == id {
+				userID, _, _ := userFromContext(r.Context())
+				if !isProjectMember(projects[i], userID) {
+					writeProjectForbidden(w)
+					return
+				}
 				updated.ID = id
 				updated.CreatedAt = projects[i].CreatedAt
 				projects[i] = updated
@@ -77,6 +98,16 @@ func registerProjectRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMa
 		projects, err := storage.GetProjects(r.Context())
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		existing, ok := findProject(r.Context(), storage, id)
+		if !ok {
+			writeError(w, http.StatusNotFound, "project not found")
+			return
+		}
+		userID, _, _ := userFromContext(r.Context())
+		if !isProjectMember(existing, userID) {
+			writeProjectForbidden(w)
 			return
 		}
 		var label string
@@ -111,19 +142,17 @@ func registerProjectRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMa
 			writeError(w, http.StatusBadRequest, "invalid body")
 			return
 		}
-		projects, err := storage.GetProjects(r.Context())
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+		project, ok := findProject(r.Context(), storage, id)
+		if !ok {
+			writeError(w, http.StatusNotFound, "project not found")
 			return
 		}
-		var label string
-		for _, p := range projects {
-			if p.ID == id {
-				label = p.Name
-				break
-			}
+		userID, _, _ := userFromContext(r.Context())
+		if !isProjectMember(project, userID) {
+			writeProjectForbidden(w)
+			return
 		}
-		auditLog.Log(r.Context(), "project.export_"+body.Format, "project", id, label,
+		auditLog.Log(r.Context(), "project.export_"+body.Format, "project", id, project.Name,
 			fmt.Sprintf("includeSecrets=%v", body.IncludeSecrets))
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	}))

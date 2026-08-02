@@ -127,7 +127,11 @@ export const api = {
       request<Project>("PUT", `/api/projects/${id}`, project),
     remove: (id: string) =>
       request<{ ok: boolean }>("DELETE", `/api/projects/${id}`),
-    exportEvent: (id: string, format: "uml" | "json", includeSecrets: boolean) =>
+    exportEvent: (
+      id: string,
+      format: "uml" | "json" | "drawio",
+      includeSecrets: boolean,
+    ) =>
       request<{ ok: boolean }>("POST", `/api/projects/${id}/export`, {
         format,
         includeSecrets,
@@ -213,6 +217,8 @@ export const api = {
       request<CommandResult>("POST", `/api/vpns/${id}/docker/stop`),
     dockerStatus: (id: string) =>
       request<CommandResult>("GET", `/api/vpns/${id}/docker/status`),
+    dockerLogs: (id: string) =>
+      request<CommandResult>("GET", `/api/vpns/${id}/docker/logs`),
     dockerPing: (id: string, targetIp: string) =>
       request<CommandResult>("POST", `/api/vpns/${id}/docker/ping`, {
         targetIp,

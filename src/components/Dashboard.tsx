@@ -111,6 +111,9 @@ export function Dashboard() {
           onCreateHost={data.createHost}
           onCreateService={data.createService}
           onCreateCredential={data.createCredential}
+          onUpdateVpn={data.updateVpn}
+          onUpdateHost={data.updateHost}
+          onUpdateService={data.updateService}
           onUpdateCredential={data.updateCredential}
           onDeleteCredential={data.deleteCredential}
           onCreateSavedCommand={data.createSavedCommand}

@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Pencil, Trash2, Download, Upload } from "lucide-react";
-import type { Project } from "../../types";
+import type { Project, User } from "../../types";
+import { api } from "../../lib/api";
+import { useAuth } from "../../context/AuthContext";
 import { Field, SubmitButton, inputClass } from "../Layout/AddResourcesPanel";
 import { ExportUmlDialog } from "./ExportUmlDialog";
 import { ImportProjectDialog } from "./ImportProjectDialog";
 
-const emptyForm = { name: "", description: "" };
+const emptyForm = { name: "", description: "", memberIds: [] as string[] };
 
 interface ProjectsTabProps {
   projects: Project[];
@@ -25,33 +27,64 @@ export function ProjectsTab({
   onDelete,
   onProjectsChanged,
 }: ProjectsTabProps) {
+  const { currentUser } = useAuth();
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [users, setUsers] = useState<User[]>([]);
   const [exportingProject, setExportingProject] = useState<Project | null | undefined>(
     undefined,
   );
   const [importOpen, setImportOpen] = useState(false);
 
+  useEffect(() => {
+    api.users.list().then(setUsers);
+  }, []);
+
   function startEdit(p: Project) {
     setEditingId(p.id);
-    setForm({ name: p.name, description: p.description ?? "" });
+    setError(null);
+    setForm({
+      name: p.name,
+      description: p.description ?? "",
+      memberIds: p.memberIds ?? [],
+    });
   }
 
   function cancelEdit() {
     setEditingId(null);
+    setError(null);
     setForm(emptyForm);
+  }
+
+  function toggleMember(userId: string) {
+    setForm((f) => ({
+      ...f,
+      memberIds: f.memberIds.includes(userId)
+        ? f.memberIds.filter((id) => id !== userId)
+        : [...f.memberIds, userId],
+    }));
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const payload = { name: form.name, description: form.description || undefined };
-    if (editingId) {
-      await onUpdate(editingId, payload);
-    } else {
-      await onCreate(payload);
+    setError(null);
+    const payload = {
+      name: form.name,
+      description: form.description || undefined,
+      memberIds: form.memberIds,
+    };
+    try {
+      if (editingId) {
+        await onUpdate(editingId, payload);
+      } else {
+        await onCreate(payload);
+      }
+      setEditingId(null);
+      setForm(emptyForm);
+    } catch (e) {
+      setError(String(e));
     }
-    setEditingId(null);
-    setForm(emptyForm);
   }
 
   return (
@@ -72,6 +105,31 @@ export function ProjectsTab({
             onChange={(e) => setForm({ ...form, description: e.target.value })}
           />
         </Field>
+        {editingId && (
+          <Field label="Members (who can access this project)">
+            <div className="flex flex-col gap-1 rounded border border-border bg-surface p-2">
+              {users.map((u) => (
+                <label
+                  key={u.id}
+                  className="flex items-center gap-2 text-xs text-ink"
+                >
+                  <input
+                    type="checkbox"
+                    checked={form.memberIds.includes(u.id)}
+                    onChange={() => toggleMember(u.id)}
+                  />
+                  {u.username}
+                  {u.id === currentUser?.id && (
+                    <span className="text-[10px] uppercase tracking-widest text-ink-faint">
+                      you
+                    </span>
+                  )}
+                </label>
+              ))}
+            </div>
+          </Field>
+        )}
+        {error && <p className="text-xs text-red-400">{error}</p>}
         <div className="flex gap-2">
           <SubmitButton label={editingId ? "Update Project" : "Add Project"} />
           {editingId && (
@@ -109,6 +167,10 @@ export function ProjectsTab({
                     {p.description}
                   </div>
                 )}
+                <div className="truncate text-[11px] text-ink-faint">
+                  {(p.memberIds ?? []).length} member
+                  {(p.memberIds ?? []).length === 1 ? "" : "s"}
+                </div>
               </div>
               <button
                 onClick={() => setExportingProject(p)}

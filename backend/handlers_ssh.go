@@ -46,6 +46,10 @@ func registerSSHRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManage
 			writeError(w, http.StatusNotFound, "host not found")
 			return
 		}
+		if !canAccessProject(r.Context(), storage, host.ProjectID) {
+			writeProjectForbidden(w)
+			return
+		}
 		cred, ok := findCredential(r.Context(), storage, host.CredentialID)
 		if !ok {
 			writeError(w, http.StatusNotFound, "credential not found for host")
@@ -61,6 +65,10 @@ func registerSSHRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManage
 		host, ok := findHost(r.Context(), storage, id)
 		if !ok {
 			writeError(w, http.StatusNotFound, "host not found")
+			return
+		}
+		if !canAccessProject(r.Context(), storage, host.ProjectID) {
+			writeProjectForbidden(w)
 			return
 		}
 		online := TCPPing(host.IP, hostPort(host))

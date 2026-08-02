@@ -59,10 +59,11 @@ export function DetailsPanel({
   if (selected.kind === "vpn") {
     const vpn = vpns.find((v) => v.id === selected.id);
     if (!vpn) return null;
+    const credential = credentials.find((c) => c.id === vpn.credentialId);
     return (
       <div className="flex flex-col gap-4">
         <Header title={vpn.name} onDelete={() => onDeleteVpn(vpn.id)} />
-        <VpnDiagnostics vpn={vpn} />
+        <VpnDiagnostics vpn={vpn} credential={credential} />
       </div>
     );
   }

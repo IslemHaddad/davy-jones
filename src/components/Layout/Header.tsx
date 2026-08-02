@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Anchor, LogOut, Settings } from "lucide-react";
+import { Anchor, LogOut, Settings, Moon, Sun } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
+import { useTheme } from "../../context/ThemeContext";
 import { AdminPanel } from "../Admin/AdminPanel";
 import type { Project } from "../../types";
 
@@ -21,6 +22,7 @@ interface HeaderProps {
 
 export function Header(props: HeaderProps) {
   const { logout, currentUser } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const [adminOpen, setAdminOpen] = useState(false);
 
   return (
@@ -52,6 +54,13 @@ export function Header(props: HeaderProps) {
             {currentUser.username}
           </span>
         )}
+        <button
+          onClick={toggleTheme}
+          className="text-ink-faint transition-colors hover:text-ink"
+          title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+        >
+          {theme === "dark" ? <Sun size={13} /> : <Moon size={13} />}
+        </button>
         <button
           onClick={() => setAdminOpen(true)}
           className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-ink-faint transition-colors hover:text-ink"

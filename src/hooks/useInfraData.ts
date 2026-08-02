@@ -71,6 +71,27 @@ export function useInfraData(projectId: string) {
     },
     [reload, projectId],
   );
+  const updateVpn = useCallback(
+    async (id: string, vpn: Omit<Vpn, "id">) => {
+      await api.vpns.update(id, { ...vpn, projectId });
+      await reload();
+    },
+    [reload, projectId],
+  );
+  const updateHost = useCallback(
+    async (id: string, host: Omit<Host, "id">) => {
+      await api.hosts.update(id, { ...host, projectId });
+      await reload();
+    },
+    [reload, projectId],
+  );
+  const updateService = useCallback(
+    async (id: string, service: Omit<Service, "id">) => {
+      await api.services.update(id, { ...service, projectId });
+      await reload();
+    },
+    [reload, projectId],
+  );
   const updateCredential = useCallback(
     async (id: string, credential: Omit<Credential, "id">) => {
       await api.credentials.update(id, credential);
@@ -135,6 +156,9 @@ export function useInfraData(projectId: string) {
     createHost,
     createService,
     createCredential,
+    updateVpn,
+    updateHost,
+    updateService,
     updateCredential,
     createSavedCommand,
     deleteVpn,

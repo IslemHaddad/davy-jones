@@ -3,6 +3,45 @@
 @tailwind utilities;
 
 @layer base {
+  /* Dark is the default (matches the app's original single-theme design)
+     so :root's un-classed values already match .dark -- no flash of the
+     wrong theme before ThemeContext's effect runs on first mount. */
+  :root,
+  .dark {
+    --color-canvas: 5 5 5;
+    --color-surface: 10 10 10;
+    --color-card: 17 17 17;
+    --color-border: 34 34 34;
+    --color-border-strong: 51 51 51;
+    --color-ink: 224 224 224;
+    --color-ink-muted: 136 136 136;
+    --color-ink-faint: 102 102 102;
+    --color-vpn: 52 211 153;
+    --color-vpn-dim: 6 95 70;
+    --color-host: 96 165 250;
+    --color-host-dim: 30 58 138;
+    --color-service: 192 132 252;
+    --color-service-dim: 88 28 135;
+  }
+  .light {
+    --color-canvas: 250 250 250;
+    --color-surface: 255 255 255;
+    --color-card: 255 255 255;
+    --color-border: 224 224 224;
+    --color-border-strong: 199 199 199;
+    --color-ink: 23 23 23;
+    --color-ink-muted: 90 90 90;
+    --color-ink-faint: 140 140 140;
+    --color-vpn: 5 150 105;
+    --color-vpn-dim: 209 250 229;
+    --color-host: 37 99 235;
+    --color-host-dim: 219 234 254;
+    --color-service: 147 51 234;
+    --color-service-dim: 243 232 255;
+  }
+}
+
+@layer base {
   * {
     @apply border-border;
   }

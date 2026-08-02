@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import { Play, Square, RefreshCw, Wifi, Key } from "lucide-react";
 import { api } from "../../lib/api";
-import type { CommandResult, Vpn } from "../../types";
+import type { CommandResult, Credential, Vpn } from "../../types";
+
+function isNoSuchContainer(result: CommandResult): boolean {
+  return result.stderr.includes("No such container");
+}
 
 function OutputPane({ result }: { result: CommandResult | null }) {
   if (!result) return null;
@@ -23,9 +27,19 @@ function OutputPane({ result }: { result: CommandResult | null }) {
   );
 }
 
-export function VpnDiagnostics({ vpn }: { vpn: Vpn }) {
+export function VpnDiagnostics({
+  vpn,
+  credential,
+}: {
+  vpn: Vpn;
+  credential?: Credential;
+}) {
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [actionResult, setActionResult] = useState<CommandResult | null>(
+    null,
+  );
+  const [logs, setLogs] = useState<CommandResult | null>(null);
   const [pingTarget, setPingTarget] = useState("");
   const [pingResult, setPingResult] = useState<CommandResult | null>(null);
   const [ncResult, setNcResult] = useState<CommandResult | null>(null);
@@ -33,22 +47,37 @@ export function VpnDiagnostics({ vpn }: { vpn: Vpn }) {
   async function refreshStatus() {
     try {
       const res = await api.vpnDiagnostics.dockerStatus(vpn.id);
-      setStatus(res.stdout || res.error || "unknown");
+      if (isNoSuchContainer(res)) {
+        setStatus("not created");
+        return;
+      }
+      setStatus(res.stdout || res.stderr || res.error || "unknown");
     } catch (e) {
       setStatus(String(e));
     }
   }
 
+  async function refreshLogs() {
+    try {
+      setLogs(await api.vpnDiagnostics.dockerLogs(vpn.id));
+    } catch (e) {
+      setLogs({ stdout: "", stderr: String(e), exitCode: -1 });
+    }
+  }
+
   useEffect(() => {
     refreshStatus();
+    refreshLogs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vpn.id]);
 
   async function handleStart() {
     setBusy("start");
+    setActionResult(null);
     try {
-      await api.vpnDiagnostics.dockerStart(vpn.id);
-      await refreshStatus();
+      const res = await api.vpnDiagnostics.dockerStart(vpn.id);
+      if (res.exitCode !== 0 || res.error) setActionResult(res);
+      await Promise.all([refreshStatus(), refreshLogs()]);
     } finally {
       setBusy(null);
     }
@@ -56,9 +85,11 @@ export function VpnDiagnostics({ vpn }: { vpn: Vpn }) {
 
   async function handleStop() {
     setBusy("stop");
+    setActionResult(null);
     try {
-      await api.vpnDiagnostics.dockerStop(vpn.id);
-      await refreshStatus();
+      const res = await api.vpnDiagnostics.dockerStop(vpn.id);
+      if (res.exitCode !== 0 || res.error) setActionResult(res);
+      await Promise.all([refreshStatus(), refreshLogs()]);
     } finally {
       setBusy(null);
     }
@@ -100,20 +131,30 @@ export function VpnDiagnostics({ vpn }: { vpn: Vpn }) {
           <dd className="text-right font-mono text-ink">{vpn.port}</dd>
           <dt className="text-ink-faint">Certificate</dt>
           <dd className="text-right text-ink">{vpn.clientCertificate}</dd>
-          <dt className="text-ink-faint">Username</dt>
-          <dd className="text-right font-mono text-ink">{vpn.username}</dd>
+          <dt className="text-ink-faint">Credential</dt>
+          <dd className="text-right font-mono text-ink">
+            {credential ? credential.name : "—"}
+          </dd>
+          <dt className="text-ink-faint">Image</dt>
+          <dd className="text-right font-mono text-ink">{vpn.image}</dd>
           <dt className="text-ink-faint">Container</dt>
           <dd className="text-right font-mono text-ink">
-            {vpn.clientContainer}
+            {vpn.containerName}
           </dd>
         </dl>
+        <pre className="mt-2 whitespace-pre-wrap break-all rounded border border-border bg-canvas p-2 font-mono text-[10px] leading-relaxed text-ink-muted">
+          {vpn.command}
+        </pre>
       </div>
 
       <div>
         <div className="section-header mb-2 flex items-center justify-between">
           <span>Docker Client</span>
           <button
-            onClick={refreshStatus}
+            onClick={() => {
+              refreshStatus();
+              refreshLogs();
+            }}
             className="text-ink-faint hover:text-ink"
           >
             <RefreshCw size={11} />
@@ -147,6 +188,25 @@ export function VpnDiagnostics({ vpn }: { vpn: Vpn }) {
             Stop
           </button>
         </div>
+        <OutputPane result={actionResult} />
+      </div>
+
+      <div>
+        <div className="section-header mb-2 flex items-center justify-between">
+          <span>Container Logs</span>
+          <button onClick={refreshLogs} className="text-ink-faint hover:text-ink">
+            <RefreshCw size={11} />
+          </button>
+        </div>
+        {logs && isNoSuchContainer(logs) ? (
+          <p className="text-[11px] text-ink-faint">
+            No container yet — click Start to launch one.
+          </p>
+        ) : logs ? (
+          <OutputPane result={logs} />
+        ) : (
+          <p className="text-[11px] text-ink-faint">No logs yet.</p>
+        )}
       </div>
 
       <div>

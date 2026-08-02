@@ -5,29 +5,33 @@ export default {
   theme: {
     extend: {
       colors: {
-        canvas: "#050505",
-        surface: "#0A0A0A",
-        card: "#111111",
+        // Values come from CSS custom properties (see index.css) so every
+        // one of these tokens can swap between the dark and light themes
+        // without touching a single component -- they all already just
+        // use e.g. bg-canvas/text-ink/bg-vpn-dim, never a raw hex.
+        canvas: "rgb(var(--color-canvas) / <alpha-value>)",
+        surface: "rgb(var(--color-surface) / <alpha-value>)",
+        card: "rgb(var(--color-card) / <alpha-value>)",
         border: {
-          DEFAULT: "#222222",
-          strong: "#333333",
+          DEFAULT: "rgb(var(--color-border) / <alpha-value>)",
+          strong: "rgb(var(--color-border-strong) / <alpha-value>)",
         },
         ink: {
-          DEFAULT: "#E0E0E0",
-          muted: "#888888",
-          faint: "#666666",
+          DEFAULT: "rgb(var(--color-ink) / <alpha-value>)",
+          muted: "rgb(var(--color-ink-muted) / <alpha-value>)",
+          faint: "rgb(var(--color-ink-faint) / <alpha-value>)",
         },
         vpn: {
-          DEFAULT: "#34D399",
-          dim: "#065F46",
+          DEFAULT: "rgb(var(--color-vpn) / <alpha-value>)",
+          dim: "rgb(var(--color-vpn-dim) / <alpha-value>)",
         },
         host: {
-          DEFAULT: "#60A5FA",
-          dim: "#1E3A8A",
+          DEFAULT: "rgb(var(--color-host) / <alpha-value>)",
+          dim: "rgb(var(--color-host-dim) / <alpha-value>)",
         },
         service: {
-          DEFAULT: "#C084FC",
-          dim: "#581C87",
+          DEFAULT: "rgb(var(--color-service) / <alpha-value>)",
+          dim: "rgb(var(--color-service-dim) / <alpha-value>)",
         },
       },
       fontFamily: {

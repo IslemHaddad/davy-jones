@@ -89,12 +89,15 @@ export function ImportProjectDialog({
       for (const v of parsed.vpns) {
         const created = await api.vpns.create({
           name: v.name,
-          network: v.network,
-          clientContainer: v.clientContainer,
+          image: v.image,
+          containerName: v.containerName,
+          command: v.command,
           remoteGateway: v.remoteGateway,
           port: v.port,
           clientCertificate: v.clientCertificate,
-          username: v.username,
+          credentialId: v.credentialId
+            ? credIdMap.get(v.credentialId)
+            : undefined,
           projectId: project.id,
         });
         vpnIdMap.set(v.id, created.id);

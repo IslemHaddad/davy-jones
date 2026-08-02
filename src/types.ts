@@ -3,12 +3,13 @@ export type ClientCertificate = "none" | "local" | "smartcard";
 export interface Vpn {
   id: string;
   name: string;
-  network: string; // CIDR
-  clientContainer: string;
+  image: string;
+  containerName: string;
+  command: string;
   remoteGateway: string;
   port: number; // default 10443
   clientCertificate: ClientCertificate;
-  username: string;
+  credentialId?: string;
   projectId?: string;
 }
 
@@ -46,6 +47,7 @@ export interface Project {
   id: string;
   name: string;
   description?: string;
+  memberIds?: string[];
   createdAt: string;
 }
 

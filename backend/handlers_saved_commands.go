@@ -9,13 +9,23 @@ func registerSavedCommandRoutes(mux *http.ServeMux, storage *Storage, authMgr *A
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, cmds)
+		visible := cmds[:0]
+		for _, c := range cmds {
+			if canAccessHost(r.Context(), storage, c.HostID) {
+				visible = append(visible, c)
+			}
+		}
+		writeJSON(w, http.StatusOK, visible)
 	}))
 
 	mux.HandleFunc("POST /api/saved-commands", protected(authMgr, sealMgr, func(w http.ResponseWriter, r *http.Request) {
 		var c SavedCommand
 		if err := readJSON(r, &c); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid body")
+			return
+		}
+		if !canAccessHost(r.Context(), storage, c.HostID) {
+			writeProjectForbidden(w)
 			return
 		}
 		c.ID = newID("cmd")
@@ -48,6 +58,10 @@ func registerSavedCommandRoutes(mux *http.ServeMux, storage *Storage, authMgr *A
 		found := false
 		for i := range cmds {
 			if cmds[i].ID == id {
+				if !canAccessHost(r.Context(), storage, cmds[i].HostID) || !canAccessHost(r.Context(), storage, updated.HostID) {
+					writeProjectForbidden(w)
+					return
+				}
 				updated.ID = id
 				cmds[i] = updated
 				found = true
@@ -74,13 +88,25 @@ func registerSavedCommandRoutes(mux *http.ServeMux, storage *Storage, authMgr *A
 			return
 		}
 		var label string
-		out := cmds[:0]
+		var existingHostID string
+		var found bool
 		for _, c := range cmds {
 			if c.ID == id {
 				label = c.Name
-				continue
+				existingHostID = c.HostID
+				found = true
+				break
 			}
-			out = append(out, c)
+		}
+		if found && !canAccessHost(r.Context(), storage, existingHostID) {
+			writeProjectForbidden(w)
+			return
+		}
+		out := cmds[:0]
+		for _, c := range cmds {
+			if c.ID != id {
+				out = append(out, c)
+			}
 		}
 		if err := storage.SaveSavedCommands(r.Context(), out); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())

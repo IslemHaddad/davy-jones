@@ -13,15 +13,22 @@ type ResourceKind = "vpn" | "host" | "service" | "credential";
 interface AddResourcesPanelProps {
   vpns: Vpn[];
   hosts: Host[];
+  services: Service[];
   credentials: Credential[];
   onCreateVpn: (vpn: Omit<Vpn, "id">) => Promise<void>;
   onCreateHost: (host: Omit<Host, "id">) => Promise<void>;
   onCreateService: (service: Omit<Service, "id">) => Promise<void>;
   onCreateCredential: (credential: Omit<Credential, "id">) => Promise<void>;
+  onUpdateVpn: (id: string, vpn: Omit<Vpn, "id">) => Promise<void>;
+  onUpdateHost: (id: string, host: Omit<Host, "id">) => Promise<void>;
+  onUpdateService: (id: string, service: Omit<Service, "id">) => Promise<void>;
   onUpdateCredential: (
     id: string,
     credential: Omit<Credential, "id">,
   ) => Promise<void>;
+  onDeleteVpn: (id: string) => void;
+  onDeleteHost: (id: string) => void;
+  onDeleteService: (id: string) => void;
   onDeleteCredential: (id: string) => void;
 }
 
@@ -54,16 +61,33 @@ export function AddResourcesPanel(props: AddResourcesPanelProps) {
         ))}
       </div>
 
-      {tab === "vpn" && <VpnForm onCreate={props.onCreateVpn} />}
+      {tab === "vpn" && (
+        <VpnForm
+          vpns={props.vpns}
+          credentials={props.credentials}
+          onCreate={props.onCreateVpn}
+          onUpdate={props.onUpdateVpn}
+          onDelete={props.onDeleteVpn}
+        />
+      )}
       {tab === "host" && (
         <HostForm
+          hosts={props.hosts}
           credentials={props.credentials}
           vpns={props.vpns}
           onCreate={props.onCreateHost}
+          onUpdate={props.onUpdateHost}
+          onDelete={props.onDeleteHost}
         />
       )}
       {tab === "service" && (
-        <ServiceForm hosts={props.hosts} onCreate={props.onCreateService} />
+        <ServiceForm
+          services={props.services}
+          hosts={props.hosts}
+          onCreate={props.onCreateService}
+          onUpdate={props.onUpdateService}
+          onDelete={props.onDeleteService}
+        />
       )}
       {tab === "credential" && (
         <CredentialForm
@@ -109,36 +133,105 @@ export function SubmitButton({ label }: { label: string }) {
   );
 }
 
+const DEFAULT_VPN_COMMAND =
+  "docker run -d --name {{container}} --net=host --privileged " +
+  "-e VPN_HOST={{host}} -e VPN_PORT={{port}} -e VPN_USER={{user}} " +
+  "-e VPN_PASS={{pass}} {{image}}";
+
+const VPN_PRESETS: Record<
+  string,
+  { label: string; image: string; command: string; port: number }
+> = {
+  fortivpn: {
+    label: "FortiClient VPN (openfortivpn)",
+    image: "davy-jones-forticlient-vpn:latest",
+    command:
+      "docker run -d -i --name {{container}} --net=host --privileged " +
+      "--device=/dev/net/tun -e VPN_HOST={{host}} -e VPN_PORT={{port}} " +
+      "-e VPN_USER={{user}} -e VPN_PASS={{pass}} {{image}}",
+    port: 443,
+  },
+};
+
+const emptyVpnForm = {
+  name: "",
+  image: "",
+  containerName: "",
+  command: DEFAULT_VPN_COMMAND,
+  remoteGateway: "",
+  port: 10443,
+  clientCertificate: "none" as ClientCertificate,
+  credentialId: "",
+};
+
 function VpnForm({
+  vpns,
+  credentials,
   onCreate,
+  onUpdate,
+  onDelete,
 }: {
+  vpns: Vpn[];
+  credentials: Credential[];
   onCreate: (vpn: Omit<Vpn, "id">) => Promise<void>;
+  onUpdate: (id: string, vpn: Omit<Vpn, "id">) => Promise<void>;
+  onDelete: (id: string) => void;
 }) {
-  const [form, setForm] = useState({
-    name: "",
-    network: "",
-    clientContainer: "",
-    remoteGateway: "",
-    port: 10443,
-    clientCertificate: "none" as ClientCertificate,
-    username: "",
-  });
+  const [form, setForm] = useState(emptyVpnForm);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [presetKey, setPresetKey] = useState("");
+
+  function applyPreset(key: string) {
+    setPresetKey(key);
+    const preset = VPN_PRESETS[key];
+    if (!preset) return;
+    setForm({
+      ...form,
+      image: preset.image,
+      command: preset.command,
+      port: preset.port,
+    });
+  }
+
+  function startEdit(vpn: Vpn) {
+    setEditingId(vpn.id);
+    setPresetKey("");
+    setForm({
+      name: vpn.name,
+      image: vpn.image,
+      containerName: vpn.containerName,
+      command: vpn.command,
+      remoteGateway: vpn.remoteGateway,
+      port: vpn.port,
+      clientCertificate: vpn.clientCertificate,
+      credentialId: vpn.credentialId ?? "",
+    });
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setPresetKey("");
+    setForm(emptyVpnForm);
+  }
 
   return (
+    <div className="flex flex-col gap-4">
     <form
       className="flex flex-col gap-3"
       onSubmit={async (e) => {
         e.preventDefault();
-        await onCreate(form);
-        setForm({
-          name: "",
-          network: "",
-          clientContainer: "",
-          remoteGateway: "",
-          port: 10443,
-          clientCertificate: "none",
-          username: "",
-        });
+        const payload = {
+          ...form,
+          credentialId: form.credentialId || undefined,
+        };
+        if (editingId) {
+          await onUpdate(editingId, payload);
+        } else {
+          await onCreate(payload);
+        }
+        setEditingId(null);
+        setPresetKey("");
+        setForm(emptyVpnForm);
       }}
     >
       <Field label="Name">
@@ -149,25 +242,68 @@ function VpnForm({
           onChange={(e) => setForm({ ...form, name: e.target.value })}
         />
       </Field>
-      <Field label="Network (CIDR)">
+      <Field label="Preset">
+        <select
+          className={inputClass}
+          value={presetKey}
+          onChange={(e) => applyPreset(e.target.value)}
+        >
+          <option value="">Custom</option>
+          {Object.entries(VPN_PRESETS).map(([key, preset]) => (
+            <option key={key} value={key}>
+              {preset.label}
+            </option>
+          ))}
+        </select>
+        <span className="mt-1 text-[10px] leading-relaxed text-ink-faint">
+          Fills in Image, Container Command, and Port below -- still
+          editable after.
+        </span>
+      </Field>
+      <Field label="Docker Image">
         <input
           required
-          placeholder="10.10.0.0/24"
+          placeholder="openforti-runner"
           className={monoInputClass}
-          value={form.network}
-          onChange={(e) => setForm({ ...form, network: e.target.value })}
+          value={form.image}
+          onChange={(e) => setForm({ ...form, image: e.target.value })}
         />
       </Field>
-      <Field label="Client Container">
+      <Field label="Container Name">
         <input
           required
-          placeholder="forticlient-vpn"
+          placeholder="dj-vpn-oran"
           className={monoInputClass}
-          value={form.clientContainer}
+          value={form.containerName}
           onChange={(e) =>
-            setForm({ ...form, clientContainer: e.target.value })
+            setForm({ ...form, containerName: e.target.value })
           }
         />
+        <span className="mt-1 text-[10px] leading-relaxed text-ink-faint">
+          Start/Stop/Status/Logs/Ping/Nc all target this exact container
+          name.
+        </span>
+      </Field>
+      <Field label="Container Command">
+        <textarea
+          required
+          rows={3}
+          spellCheck={false}
+          className={`${monoInputClass} resize-y leading-relaxed`}
+          value={form.command}
+          onChange={(e) => setForm({ ...form, command: e.target.value })}
+        />
+        <span className="mt-1 text-[10px] leading-relaxed text-ink-faint">
+          Run once when this VPN is saved (created or edited) to (re)build
+          its container, with {"{{host}}"} {"{{port}}"} {"{{user}}"}{" "}
+          {"{{pass}}"} {"{{image}}"} {"{{container}}"} substituted (the last
+          from Container Name above). Start/Stop afterward just toggle that
+          same container -- they don't run this again. Keep{" "}
+          <code>--name {"{{container}}"}</code> in the command, and always
+          include <code>-d</code> (detached) -- saving waits for this
+          command to return, so without it the request just hangs until it
+          times out.
+        </span>
       </Field>
       <Field label="Remote Gateway">
         <input
@@ -206,48 +342,134 @@ function VpnForm({
           </select>
         </Field>
       </div>
-      <Field label="Username">
-        <input
+      <Field label="Credential (optional)">
+        <select
           className={inputClass}
-          value={form.username}
-          onChange={(e) => setForm({ ...form, username: e.target.value })}
-        />
+          value={form.credentialId}
+          onChange={(e) => setForm({ ...form, credentialId: e.target.value })}
+        >
+          <option value="">None</option>
+          {credentials.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
       </Field>
-      <SubmitButton label="Add VPN" />
+      <div className="flex gap-2">
+        <SubmitButton label={editingId ? "Update VPN" : "Add VPN"} />
+        {editingId && (
+          <button
+            type="button"
+            onClick={cancelEdit}
+            className="mt-1 rounded border border-border-strong px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-ink-muted hover:text-ink"
+          >
+            Cancel
+          </button>
+        )}
+      </div>
     </form>
+
+      {vpns.length > 0 && (
+        <div>
+          <div className="section-header mb-2">Existing VPNs</div>
+          <div className="flex flex-col gap-1.5">
+            {vpns.map((v) => (
+              <div
+                key={v.id}
+                className="flex items-center gap-2 rounded border border-border bg-surface px-2.5 py-1.5"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-xs text-ink">{v.name}</div>
+                  <div className="truncate font-mono text-[11px] text-ink-faint">
+                    {v.remoteGateway}
+                  </div>
+                </div>
+                <button
+                  onClick={() => startEdit(v)}
+                  className="text-ink-faint hover:text-ink"
+                  title="Edit"
+                >
+                  <Pencil size={12} />
+                </button>
+                <button
+                  onClick={() => onDelete(v.id)}
+                  className="text-ink-faint hover:text-red-400"
+                  title="Delete"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
+const emptyHostForm = {
+  name: "",
+  ip: "",
+  credentialId: "",
+  vpnId: "",
+  port: "",
+};
+
 function HostForm({
+  hosts,
   credentials,
   vpns,
   onCreate,
+  onUpdate,
+  onDelete,
 }: {
+  hosts: Host[];
   credentials: Credential[];
   vpns: Vpn[];
   onCreate: (host: Omit<Host, "id">) => Promise<void>;
+  onUpdate: (id: string, host: Omit<Host, "id">) => Promise<void>;
+  onDelete: (id: string) => void;
 }) {
-  const [form, setForm] = useState({
-    name: "",
-    ip: "",
-    credentialId: "",
-    vpnId: "",
-    port: "",
-  });
+  const [form, setForm] = useState(emptyHostForm);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  function startEdit(host: Host) {
+    setEditingId(host.id);
+    setForm({
+      name: host.name,
+      ip: host.ip,
+      credentialId: host.credentialId,
+      vpnId: host.vpnId ?? "",
+      port: host.port ? String(host.port) : "",
+    });
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setForm(emptyHostForm);
+  }
 
   return (
+    <div className="flex flex-col gap-4">
     <form
       className="flex flex-col gap-3"
       onSubmit={async (e) => {
         e.preventDefault();
-        await onCreate({
+        const payload = {
           name: form.name,
           ip: form.ip,
           credentialId: form.credentialId,
           vpnId: form.vpnId || undefined,
           port: form.port ? Number(form.port) : undefined,
-        });
-        setForm({ name: "", ip: "", credentialId: "", vpnId: "", port: "" });
+        };
+        if (editingId) {
+          await onUpdate(editingId, payload);
+        } else {
+          await onCreate(payload);
+        }
+        setEditingId(null);
+        setForm(emptyHostForm);
       }}
     >
       <Field label="Name">
@@ -309,27 +531,98 @@ function HostForm({
           ))}
         </select>
       </Field>
-      <SubmitButton label="Add Host" />
+      <div className="flex gap-2">
+        <SubmitButton label={editingId ? "Update Host" : "Add Host"} />
+        {editingId && (
+          <button
+            type="button"
+            onClick={cancelEdit}
+            className="mt-1 rounded border border-border-strong px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-ink-muted hover:text-ink"
+          >
+            Cancel
+          </button>
+        )}
+      </div>
     </form>
+
+      {hosts.length > 0 && (
+        <div>
+          <div className="section-header mb-2">Existing Hosts</div>
+          <div className="flex flex-col gap-1.5">
+            {hosts.map((h) => (
+              <div
+                key={h.id}
+                className="flex items-center gap-2 rounded border border-border bg-surface px-2.5 py-1.5"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-xs text-ink">{h.name}</div>
+                  <div className="truncate font-mono text-[11px] text-ink-faint">
+                    {h.ip}
+                  </div>
+                </div>
+                <button
+                  onClick={() => startEdit(h)}
+                  className="text-ink-faint hover:text-ink"
+                  title="Edit"
+                >
+                  <Pencil size={12} />
+                </button>
+                <button
+                  onClick={() => onDelete(h.id)}
+                  className="text-ink-faint hover:text-red-400"
+                  title="Delete"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
 function ServiceForm({
+  services,
   hosts,
   onCreate,
+  onUpdate,
+  onDelete,
 }: {
+  services: Service[];
   hosts: Host[];
   onCreate: (service: Omit<Service, "id">) => Promise<void>;
+  onUpdate: (id: string, service: Omit<Service, "id">) => Promise<void>;
+  onDelete: (id: string) => void;
 }) {
-  const [form, setForm] = useState({ name: "", type: "Docker", hostId: "" });
+  const emptyForm = { name: "", type: "Docker", hostId: "" };
+  const [form, setForm] = useState(emptyForm);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  function startEdit(service: Service) {
+    setEditingId(service.id);
+    setForm({ name: service.name, type: service.type, hostId: service.hostId });
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setForm(emptyForm);
+  }
 
   return (
+    <div className="flex flex-col gap-4">
     <form
       className="flex flex-col gap-3"
       onSubmit={async (e) => {
         e.preventDefault();
-        await onCreate(form);
-        setForm({ name: "", type: "Docker", hostId: "" });
+        if (editingId) {
+          await onUpdate(editingId, form);
+        } else {
+          await onCreate(form);
+        }
+        setEditingId(null);
+        setForm(emptyForm);
       }}
     >
       <Field label="Name">
@@ -368,8 +661,55 @@ function ServiceForm({
           ))}
         </select>
       </Field>
-      <SubmitButton label="Add Service" />
+      <div className="flex gap-2">
+        <SubmitButton label={editingId ? "Update Service" : "Add Service"} />
+        {editingId && (
+          <button
+            type="button"
+            onClick={cancelEdit}
+            className="mt-1 rounded border border-border-strong px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-ink-muted hover:text-ink"
+          >
+            Cancel
+          </button>
+        )}
+      </div>
     </form>
+
+      {services.length > 0 && (
+        <div>
+          <div className="section-header mb-2">Existing Services</div>
+          <div className="flex flex-col gap-1.5">
+            {services.map((s) => (
+              <div
+                key={s.id}
+                className="flex items-center gap-2 rounded border border-border bg-surface px-2.5 py-1.5"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-xs text-ink">{s.name}</div>
+                  <div className="truncate font-mono text-[11px] text-ink-faint">
+                    {s.type} · {hosts.find((h) => h.id === s.hostId)?.name ?? "—"}
+                  </div>
+                </div>
+                <button
+                  onClick={() => startEdit(s)}
+                  className="text-ink-faint hover:text-ink"
+                  title="Edit"
+                >
+                  <Pencil size={12} />
+                </button>
+                <button
+                  onClick={() => onDelete(s.id)}
+                  className="text-ink-faint hover:text-red-400"
+                  title="Delete"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

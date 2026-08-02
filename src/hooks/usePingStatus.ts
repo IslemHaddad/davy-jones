@@ -21,15 +21,17 @@ export function usePingStatus(hosts: Host[]) {
         current.map(async (host) => {
           try {
             const { online } = await api.hosts.ping(host.id);
+            const next: PingStatus = online ? "online" : "offline";
             if (!cancelled) {
-              setStatus((prev) => ({
-                ...prev,
-                [host.id]: online ? "online" : "offline",
-              }));
+              setStatus((prev) =>
+                prev[host.id] === next ? prev : { ...prev, [host.id]: next },
+              );
             }
           } catch {
             if (!cancelled) {
-              setStatus((prev) => ({ ...prev, [host.id]: "offline" }));
+              setStatus((prev) =>
+                prev[host.id] === "offline" ? prev : { ...prev, [host.id]: "offline" },
+              );
             }
           }
         }),

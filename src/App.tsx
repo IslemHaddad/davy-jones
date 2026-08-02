@@ -1,4 +1,5 @@
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { ThemeProvider } from "./context/ThemeContext";
 import { LoginScreen } from "./components/Auth/LoginScreen";
 import { SealScreen } from "./components/Auth/SealScreen";
 import { Dashboard } from "./components/Dashboard";
@@ -22,8 +23,10 @@ function Gate() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <Gate />
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <Gate />
+      </AuthProvider>
+    </ThemeProvider>
   );
 }

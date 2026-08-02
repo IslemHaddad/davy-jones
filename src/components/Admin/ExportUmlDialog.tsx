@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
 import { X, Download } from "lucide-react";
 import { api } from "../../lib/api";
-import { buildPlantUML, buildProjectJson, downloadTextFile } from "../../lib/umlExport";
+import {
+  buildDrawIO,
+  buildPlantUML,
+  buildProjectJson,
+  downloadTextFile,
+} from "../../lib/umlExport";
 import type { Credential, Host, Project, Service, Vpn } from "../../types";
 
 interface ExportUmlDialogProps {
@@ -40,6 +45,20 @@ export function ExportUmlDialog({ project, onClose }: ExportUmlDialogProps) {
     downloadTextFile(`${project?.name ?? "unassigned"}.puml`, text, "text/plain");
     if (project) {
       await api.projects.exportEvent(project.id, "uml", includeSecrets).catch(() => {});
+    }
+  }
+
+  async function handleExportDrawio() {
+    const xml = buildDrawIO(project, vpns, hosts, services, credentials, {
+      includeSecrets,
+    });
+    downloadTextFile(
+      `${project?.name ?? "unassigned"}.drawio`,
+      xml,
+      "application/xml",
+    );
+    if (project) {
+      await api.projects.exportEvent(project.id, "drawio", includeSecrets).catch(() => {});
     }
   }
 
@@ -92,6 +111,14 @@ export function ExportUmlDialog({ project, onClose }: ExportUmlDialogProps) {
           >
             <Download size={12} />
             Export UML (.puml)
+          </button>
+          <button
+            onClick={handleExportDrawio}
+            disabled={loading}
+            className="flex items-center justify-center gap-1.5 rounded border border-border-strong px-3 py-2 text-xs font-bold uppercase tracking-widest text-ink-muted hover:text-ink disabled:opacity-40"
+          >
+            <Download size={12} />
+            Export draw.io (.drawio)
           </button>
           <button
             onClick={handleExportJson}
