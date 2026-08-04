@@ -132,7 +132,11 @@ func registerProjectRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMa
 	// the currently-open project). This endpoint exists purely so exporting
 	// -- especially WITH real credentials -- lands in the audit trail; it's
 	// the single most sensitive action in the app.
-	mux.HandleFunc("POST /api/projects/{id}/export", protected(authMgr, sealMgr, func(w http.ResponseWriter, r *http.Request) {
+	// PermRead despite being a POST: nothing is modified, the method is only
+	// used because it writes an audit entry. Whether the export can contain
+	// real secrets is already decided by credential redaction on the list
+	// endpoint, which is what the browser builds the file from.
+	mux.HandleFunc("POST /api/projects/{id}/export", protectedAs(PermRead, authMgr, sealMgr, func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		var body struct {
 			Format         string `json:"format"` // "uml" | "json"

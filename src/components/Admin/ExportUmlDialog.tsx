@@ -7,7 +7,14 @@ import {
   buildProjectJson,
   downloadTextFile,
 } from "../../lib/umlExport";
-import type { Credential, Host, Project, Service, Vpn } from "../../types";
+import type {
+  Credential,
+  Host,
+  NodePosition,
+  Project,
+  Service,
+  Vpn,
+} from "../../types";
 
 interface ExportUmlDialogProps {
   project: Project | null; // null == the "Unassigned" bucket
@@ -22,6 +29,9 @@ export function ExportUmlDialog({ project, onClose }: ExportUmlDialogProps) {
   const [hosts, setHosts] = useState<Host[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [credentials, setCredentials] = useState<Credential[]>([]);
+  // The canvas arrangement, so the exported diagram matches how the graph
+  // was laid out rather than falling back to the generated grid.
+  const [positions, setPositions] = useState<Record<string, NodePosition>>({});
 
   useEffect(() => {
     Promise.all([
@@ -29,11 +39,13 @@ export function ExportUmlDialog({ project, onClose }: ExportUmlDialogProps) {
       api.hosts.list(projectId),
       api.services.list(projectId),
       api.credentials.list(projectId),
-    ]).then(([v, h, s, c]) => {
+      api.layout.get(projectId).catch(() => null),
+    ]).then(([v, h, s, c, layout]) => {
       setVpns(v);
       setHosts(h);
       setServices(s);
       setCredentials(c);
+      setPositions(layout?.positions ?? {});
       setLoading(false);
     });
   }, [projectId]);
@@ -49,9 +61,15 @@ export function ExportUmlDialog({ project, onClose }: ExportUmlDialogProps) {
   }
 
   async function handleExportDrawio() {
-    const xml = buildDrawIO(project, vpns, hosts, services, credentials, {
-      includeSecrets,
-    });
+    const xml = buildDrawIO(
+      project,
+      vpns,
+      hosts,
+      services,
+      credentials,
+      { includeSecrets },
+      positions,
+    );
     downloadTextFile(
       `${project?.name ?? "unassigned"}.drawio`,
       xml,

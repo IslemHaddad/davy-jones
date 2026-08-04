@@ -3,11 +3,19 @@ import { api } from "../../lib/api";
 import type { AuditEntry } from "../../types";
 import { inputClass } from "../Layout/AddResourcesPanel";
 
+/** "shell_9f3a1c..." -> "#9f3a1c" -- enough to tell two sessions apart. */
+function shortSession(id: string): string {
+  return "#" + id.replace(/^shell_/, "").slice(0, 6);
+}
+
 export function AuditLogTab() {
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [usernameFilter, setUsernameFilter] = useState("");
   const [actionFilter, setActionFilter] = useState("");
+  // Set by clicking a session badge: narrows the list to one shell session,
+  // which is the only practical way to read a long command trail.
+  const [sessionFilter, setSessionFilter] = useState<string | null>(null);
 
   useEffect(() => {
     api.audit.list().then((res) => {
@@ -27,6 +35,7 @@ export function AuditLogTab() {
       !e.action.toLowerCase().includes(actionFilter.toLowerCase())
     )
       return false;
+    if (sessionFilter && e.sessionId !== sessionFilter) return false;
     return true;
   });
 
@@ -47,6 +56,15 @@ export function AuditLogTab() {
         />
       </div>
 
+      {sessionFilter && (
+        <button
+          onClick={() => setSessionFilter(null)}
+          className="self-start rounded border border-border-strong px-2 py-1 text-[10px] uppercase tracking-widest text-ink-muted hover:text-ink"
+        >
+          Shell session {shortSession(sessionFilter)} &times; clear
+        </button>
+      )}
+
       {loading ? (
         <div className="text-xs text-ink-faint">Loading...</div>
       ) : (
@@ -63,11 +81,22 @@ export function AuditLogTab() {
                 <span className="font-mono text-[11px] text-ink">
                   {e.action}
                 </span>
-                <span className="text-[10px] text-ink-faint">
-                  {new Date(e.timestamp).toLocaleString()}
-                </span>
+                <div className="flex items-center gap-2">
+                  {e.sessionId && (
+                    <button
+                      onClick={() => setSessionFilter(e.sessionId ?? null)}
+                      title="Show only this shell session"
+                      className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-ink-faint hover:border-border-strong hover:text-ink"
+                    >
+                      {shortSession(e.sessionId)}
+                    </button>
+                  )}
+                  <span className="text-[10px] text-ink-faint">
+                    {new Date(e.timestamp).toLocaleString()}
+                  </span>
+                </div>
               </div>
-              <div className="truncate text-[11px] text-ink-faint">
+              <div className="break-words text-[11px] text-ink-faint">
                 {e.username || "system"}
                 {e.targetLabel && (
                   <>

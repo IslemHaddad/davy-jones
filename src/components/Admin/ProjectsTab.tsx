@@ -17,7 +17,8 @@ interface ProjectsTabProps {
     project: Omit<Project, "id" | "createdAt">,
   ) => Promise<void>;
   onDelete: (id: string) => void;
-  onProjectsChanged: () => Promise<void>;
+  // Passing a project id also makes it the dashboard's active project.
+  onProjectsChanged: (newProjectId?: string) => Promise<void>;
 }
 
 export function ProjectsTab({

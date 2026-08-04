@@ -27,6 +27,11 @@ func staticHandler() http.Handler {
 		path := strings.TrimPrefix(r.URL.Path, "/")
 		if path != "" {
 			if _, err := fs.Stat(sub, path); err == nil {
+				// Vite fingerprints everything under assets/, so those are
+				// safe to cache forever; a new build produces new names.
+				if strings.HasPrefix(path, "assets/") {
+					w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+				}
 				fileServer.ServeHTTP(w, r)
 				return
 			}
@@ -52,6 +57,11 @@ func serveIndex(w http.ResponseWriter, r *http.Request, sub fs.FS) {
 		http.NotFound(w, r)
 		return
 	}
+
+	// The shell must never be cached: it is the one file whose name doesn't
+	// change between builds, so a cached copy would keep pointing at asset
+	// hashes that no longer exist after an upgrade.
+	w.Header().Set("Cache-Control", "no-store")
 
 	rs, ok := f.(io.ReadSeeker)
 	if !ok {

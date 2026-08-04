@@ -27,6 +27,10 @@ type AuditEntry struct {
 	TargetID    string    `json:"targetId,omitempty"`
 	TargetLabel string    `json:"targetLabel,omitempty"`
 	Detail      string    `json:"detail,omitempty"`
+	// SessionID groups entries produced by one interactive shell session, so
+	// the trail can answer "which commands were run in *that* shell" and not
+	// just "which commands were run on that host".
+	SessionID string `json:"sessionId,omitempty"`
 }
 
 // AuditLogger is intentionally NOT built on Storage's readEncrypted/
@@ -53,6 +57,15 @@ func (a *AuditLogger) pathForDay(day time.Time) string {
 // process, or a disk error all just get logged to stderr -- an audit
 // failure must never block the real action it's describing.
 func (a *AuditLogger) Log(ctx context.Context, action, targetType, targetID, targetLabel, detail string) {
+	a.log(ctx, "", action, targetType, targetID, targetLabel, detail)
+}
+
+// LogSession is Log with a shell-session id attached -- see AuditEntry.SessionID.
+func (a *AuditLogger) LogSession(ctx context.Context, sessionID, action, targetType, targetID, targetLabel, detail string) {
+	a.log(ctx, sessionID, action, targetType, targetID, targetLabel, detail)
+}
+
+func (a *AuditLogger) log(ctx context.Context, sessionID, action, targetType, targetID, targetLabel, detail string) {
 	userID, username, ok := userFromContext(ctx)
 	if !ok {
 		userID, username = "", "system"
@@ -73,6 +86,7 @@ func (a *AuditLogger) Log(ctx context.Context, action, targetType, targetID, tar
 		TargetID:    targetID,
 		TargetLabel: targetLabel,
 		Detail:      detail,
+		SessionID:   sessionID,
 	}
 
 	plain, err := json.Marshal(entry)
@@ -134,7 +148,9 @@ func (a *AuditLogger) List(ctx context.Context, opts AuditListOptions) ([]AuditE
 		limit = 1000
 	}
 
-	var entries []AuditEntry
+	// Non-nil so an empty result marshals as [] rather than null -- the
+	// caller filters it directly.
+	entries := []AuditEntry{}
 	for day := since; !day.After(until); day = day.AddDate(0, 0, 1) {
 		path := a.pathForDay(day)
 		f, err := os.Open(path)

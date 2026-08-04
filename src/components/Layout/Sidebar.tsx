@@ -1,30 +1,45 @@
-import { useState } from "react";
 import { SlidersHorizontal, PlusCircle } from "lucide-react";
 import type {
+  CommandResult,
   Credential,
   Host,
+  HostMetricsResponse,
+  Project,
   SavedCommand,
   Service,
   Vpn,
   SelectedNode,
 } from "../../types";
+import { useAuth } from "../../context/AuthContext";
 import { DetailsPanel } from "./DetailsPanel";
 import { AddResourcesPanel } from "./AddResourcesPanel";
 
-type Tab = "details" | "add";
+export type SidebarTab = "details" | "add";
 
 interface SidebarProps {
+  // Controlled by Dashboard so double-clicking a node on the canvas can
+  // force the details tab open.
+  tab: SidebarTab;
+  onTabChange: (tab: SidebarTab) => void;
   selected: SelectedNode | null;
+  metrics: Record<string, HostMetricsResponse>;
   vpns: Vpn[];
   hosts: Host[];
   services: Service[];
   credentials: Credential[];
+  projects: Project[];
+  activeProjectId: string;
   savedCommands: SavedCommand[];
-  onCreateVpn: (vpn: Omit<Vpn, "id">) => Promise<void>;
+  onCreateVpn: (
+    vpn: Omit<Vpn, "id">,
+  ) => Promise<{ container: CommandResult } | void>;
   onCreateHost: (host: Omit<Host, "id">) => Promise<void>;
   onCreateService: (service: Omit<Service, "id">) => Promise<void>;
   onCreateCredential: (credential: Omit<Credential, "id">) => Promise<void>;
-  onUpdateVpn: (id: string, vpn: Omit<Vpn, "id">) => Promise<void>;
+  onUpdateVpn: (
+    id: string,
+    vpn: Omit<Vpn, "id">,
+  ) => Promise<{ container: CommandResult } | void>;
   onUpdateHost: (id: string, host: Omit<Host, "id">) => Promise<void>;
   onUpdateService: (id: string, service: Omit<Service, "id">) => Promise<void>;
   onUpdateCredential: (
@@ -47,27 +62,34 @@ interface SidebarProps {
 }
 
 export function Sidebar(props: SidebarProps) {
-  const [tab, setTab] = useState<Tab>("details");
+  const { tab, onTabChange: setTab } = props;
+  const { canWrite } = useAuth();
+  // A read-only account can't create anything, so the tab is hidden rather
+  // than left to fail on submit. Falling back to details also keeps the
+  // panel valid if the role changes while "add" is open.
+  const activeTab = canWrite ? tab : "details";
 
   return (
     <aside className="flex h-full w-96 flex-col border-l border-border bg-surface">
       <div className="flex border-b border-border">
         <TabButton
-          active={tab === "details"}
+          active={activeTab === "details"}
           onClick={() => setTab("details")}
           icon={<SlidersHorizontal size={12} />}
           label="Details & Actions"
         />
-        <TabButton
-          active={tab === "add"}
-          onClick={() => setTab("add")}
-          icon={<PlusCircle size={12} />}
-          label="Add Resources"
-        />
+        {canWrite && (
+          <TabButton
+            active={activeTab === "add"}
+            onClick={() => setTab("add")}
+            icon={<PlusCircle size={12} />}
+            label="Add Resources"
+          />
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-4">
-        {tab === "details" ? (
+        {activeTab === "details" ? (
           <DetailsPanel
             selected={props.selected}
             vpns={props.vpns}
@@ -75,6 +97,7 @@ export function Sidebar(props: SidebarProps) {
             services={props.services}
             credentials={props.credentials}
             savedCommands={props.savedCommands}
+            metrics={props.metrics}
             onDeleteVpn={props.onDeleteVpn}
             onDeleteHost={props.onDeleteHost}
             onDeleteService={props.onDeleteService}
@@ -89,6 +112,8 @@ export function Sidebar(props: SidebarProps) {
             hosts={props.hosts}
             services={props.services}
             credentials={props.credentials}
+            projects={props.projects}
+            activeProjectId={props.activeProjectId}
             onCreateVpn={props.onCreateVpn}
             onCreateHost={props.onCreateHost}
             onCreateService={props.onCreateService}

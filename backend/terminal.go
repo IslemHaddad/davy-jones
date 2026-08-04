@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"strconv"
@@ -15,10 +16,11 @@ import (
 var wsUpgrader = websocket.Upgrader{
 	ReadBufferSize:  4096,
 	WriteBufferSize: 4096,
-	// The app has its own session-token auth layer (checked on the first
-	// WS message, not at the HTTP-upgrade level -- browsers can't attach
-	// custom headers to WebSocket requests), so origin isn't the gate here.
-	CheckOrigin: func(r *http.Request) bool { return true },
+	// The session token remains the actual gate (checked on the first WS
+	// message, not at the HTTP-upgrade level -- browsers can't attach custom
+	// headers to WebSocket requests); the origin check in front of it is
+	// defense in depth against cross-site socket hijacking. See security.go.
+	CheckOrigin: sameOriginWS,
 }
 
 // wsClientMsg covers every shape of message the client can send: the
@@ -92,13 +94,22 @@ func registerTerminalRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthM
 			conn.writeControl(map[string]string{"type": "error", "message": "unauthorized"})
 			return
 		}
+		// This route is a GET, so the method-based gating in protected()
+		// would call it a read -- but a shell is the most powerful write
+		// there is, and it would also hand a read-only account the exact
+		// credentials it isn't allowed to see. Checked explicitly here
+		// because the WebSocket upgrade bypasses that middleware entirely.
+		if !canWrite(normalizeRole(sess.Role)) {
+			conn.writeControl(map[string]string{"type": "error", "message": permissionDenied(PermWrite)})
+			return
+		}
 
 		key, err := sealMgr.Key()
 		if err != nil {
 			conn.writeControl(map[string]string{"type": "error", "message": "sealed"})
 			return
 		}
-		ctx := withUser(withSealKey(r.Context(), key), sess.UserID, sess.Username)
+		ctx := withSession(withSealKey(r.Context(), key), sess)
 
 		host, ok := findHost(ctx, storage, first.HostID)
 		if !ok {
@@ -164,7 +175,13 @@ func registerTerminalRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthM
 			conn.writeControl(map[string]string{"type": "error", "message": err.Error()})
 			return
 		}
-		session.Stdout = wsOutputWriter{conn: conn}
+		// One id per shell, so every command typed here is attributable to
+		// this specific session rather than just to the host.
+		shellSessionID := newID("shell")
+		recorder := newShellRecorder(func(command string) {
+			auditLog.LogSession(ctx, shellSessionID, "ssh.shell.command", "host", host.ID, host.Name, command)
+		})
+		session.Stdout = io.MultiWriter(wsOutputWriter{conn: conn}, recorderWriter{rec: recorder})
 
 		if first.Command != "" {
 			err = session.Start(first.Command)
@@ -179,9 +196,9 @@ func registerTerminalRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthM
 		conn.writeControl(map[string]string{"type": "ready"})
 
 		if first.Command == "" {
-			auditLog.Log(ctx, "ssh.shell.open", "host", host.ID, host.Name, "")
+			auditLog.LogSession(ctx, shellSessionID, "ssh.shell.open", "host", host.ID, host.Name, "")
 		} else {
-			auditLog.Log(ctx, "ssh.command.run", "host", host.ID, host.Name, first.Command)
+			auditLog.LogSession(ctx, shellSessionID, "ssh.command.run", "host", host.ID, host.Name, first.Command)
 		}
 
 		go func() {
@@ -189,6 +206,9 @@ func registerTerminalRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthM
 			conn.writeControl(map[string]string{"type": "exit"})
 			rawConn.Close()
 		}()
+		if first.Command == "" {
+			defer auditLog.LogSession(ctx, shellSessionID, "ssh.shell.close", "host", host.ID, host.Name, "")
+		}
 
 		for {
 			_, data, err := rawConn.ReadMessage()
@@ -201,6 +221,11 @@ func registerTerminalRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthM
 			}
 			switch msg.Type {
 			case "input":
+				// Record before writing: a keystroke that kills the session
+				// should still show up in the trail.
+				if first.Command == "" {
+					recorder.Input(msg.Data)
+				}
 				stdin.Write([]byte(msg.Data))
 			case "resize":
 				if msg.Cols > 0 && msg.Rows > 0 {

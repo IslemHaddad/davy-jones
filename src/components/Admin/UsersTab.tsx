@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { api } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
-import type { User } from "../../types";
+import { ROLE_LABELS, type Role, type User } from "../../types";
+
+const ROLES = Object.keys(ROLE_LABELS) as Role[];
 import {
   Field,
   SubmitButton,
@@ -15,7 +17,10 @@ export function UsersTab() {
   const [loading, setLoading] = useState(true);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [role, setRole] = useState<Role>("readwrite");
   const [error, setError] = useState<string | null>(null);
+
+  const isAdmin = currentUser?.role === "admin";
 
   async function reload() {
     setUsers(await api.users.list());
@@ -30,9 +35,19 @@ export function UsersTab() {
     e.preventDefault();
     setError(null);
     try {
-      await api.users.create(username, password);
+      await api.users.create(username, password, role);
       setUsername("");
       setPassword("");
+      await reload();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function handleRoleChange(id: string, next: Role) {
+    setError(null);
+    try {
+      await api.users.setRole(id, next);
       await reload();
     } catch (e) {
       setError(String(e));
@@ -69,7 +84,25 @@ export function UsersTab() {
             onChange={(e) => setPassword(e.target.value)}
           />
         </Field>
+        <Field label="Role">
+          <select
+            className={inputClass}
+            value={role}
+            onChange={(e) => setRole(e.target.value as Role)}
+          >
+            {ROLES.map((r) => (
+              <option key={r} value={r}>
+                {ROLE_LABELS[r]}
+              </option>
+            ))}
+          </select>
+        </Field>
         {error && <p className="text-xs text-red-400">{error}</p>}
+        {!isAdmin && (
+          <p className="text-[11px] text-ink-faint">
+            Only administrators can add users or change roles.
+          </p>
+        )}
         <SubmitButton label="Add User" />
       </form>
 
@@ -97,14 +130,35 @@ export function UsersTab() {
                       created {new Date(u.createdAt).toLocaleString()}
                     </div>
                   </div>
+                  <select
+                    value={u.role}
+                    disabled={!isAdmin}
+                    onChange={(e) =>
+                      handleRoleChange(u.id, e.target.value as Role)
+                    }
+                    title={
+                      isAdmin
+                        ? "Change role (signs this user out immediately)"
+                        : "Only administrators can change roles"
+                    }
+                    className="rounded border border-border bg-card px-1.5 py-1 text-[10px] text-ink outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {ROLES.map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
                   <button
                     onClick={() => handleDelete(u.id)}
-                    disabled={isLastUser}
+                    disabled={isLastUser || !isAdmin}
                     className="text-ink-faint hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-30"
                     title={
                       isLastUser
                         ? "Cannot delete the last remaining user"
-                        : "Delete"
+                        : !isAdmin
+                          ? "Only administrators can delete users"
+                          : "Delete"
                     }
                   >
                     <Trash2 size={12} />

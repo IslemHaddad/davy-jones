@@ -17,7 +17,19 @@ func requireSession(authMgr *AuthManager, h http.HandlerFunc) http.HandlerFunc {
 			writeError(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
-		h(w, r.WithContext(withUser(r.Context(), sess.UserID, sess.Username)))
+		h(w, r.WithContext(withSession(r.Context(), sess)))
+	}
+}
+
+// requireRole gates a handler on the caller's role. It runs after
+// requireSession, so the session (and its role) is already on the context.
+func requireRole(perm Permission, h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !roleAllows(roleFromContext(r.Context()), perm) {
+			writeError(w, http.StatusForbidden, permissionDenied(perm))
+			return
+		}
+		h(w, r)
 	}
 }
 
@@ -47,6 +59,24 @@ func requireUnsealed(sealMgr *SealManager, h http.HandlerFunc) http.HandlerFunc 
 // protected is the standard guard for any route touching infrastructure
 // data: a valid session AND an unsealed master key, in that order so an
 // unauthenticated caller learns nothing about seal state.
+//
+// Role gating follows HTTP method semantics -- the safe methods (GET, HEAD)
+// need read permission, everything else needs write. That default is right
+// for the great majority of routes here; the handful where the method
+// doesn't describe the actual power being exercised (the terminal WebSocket
+// is a GET that opens a shell; user administration is admin-only; the
+// export ping is a POST that only reads) call protectedAs explicitly instead.
 func protected(authMgr *AuthManager, sealMgr *SealManager, h http.HandlerFunc) http.HandlerFunc {
-	return requireSession(authMgr, requireUnsealed(sealMgr, h))
+	return requireSession(authMgr, func(w http.ResponseWriter, r *http.Request) {
+		perm := PermWrite
+		if r.Method == http.MethodGet || r.Method == http.MethodHead {
+			perm = PermRead
+		}
+		requireRole(perm, requireUnsealed(sealMgr, h))(w, r)
+	})
+}
+
+// protectedAs is protected with the role requirement stated outright.
+func protectedAs(perm Permission, authMgr *AuthManager, sealMgr *SealManager, h http.HandlerFunc) http.HandlerFunc {
+	return requireSession(authMgr, requireRole(perm, requireUnsealed(sealMgr, h)))
 }

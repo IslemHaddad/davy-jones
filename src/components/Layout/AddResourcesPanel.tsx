@@ -2,11 +2,14 @@ import { useState, type ReactNode } from "react";
 import { Network, Server, Box, Key, Pencil, Trash2 } from "lucide-react";
 import type {
   ClientCertificate,
+  CommandResult,
   Credential,
   Host,
+  Project,
   Service,
   Vpn,
 } from "../../types";
+import { DiscoverServices } from "./DiscoverServices";
 
 type ResourceKind = "vpn" | "host" | "service" | "credential";
 
@@ -15,11 +18,18 @@ interface AddResourcesPanelProps {
   hosts: Host[];
   services: Service[];
   credentials: Credential[];
-  onCreateVpn: (vpn: Omit<Vpn, "id">) => Promise<void>;
+  projects: Project[];
+  activeProjectId: string;
+  onCreateVpn: (
+    vpn: Omit<Vpn, "id">,
+  ) => Promise<{ container: CommandResult } | void>;
   onCreateHost: (host: Omit<Host, "id">) => Promise<void>;
   onCreateService: (service: Omit<Service, "id">) => Promise<void>;
   onCreateCredential: (credential: Omit<Credential, "id">) => Promise<void>;
-  onUpdateVpn: (id: string, vpn: Omit<Vpn, "id">) => Promise<void>;
+  onUpdateVpn: (
+    id: string,
+    vpn: Omit<Vpn, "id">,
+  ) => Promise<{ container: CommandResult } | void>;
   onUpdateHost: (id: string, host: Omit<Host, "id">) => Promise<void>;
   onUpdateService: (id: string, service: Omit<Service, "id">) => Promise<void>;
   onUpdateCredential: (
@@ -65,6 +75,8 @@ export function AddResourcesPanel(props: AddResourcesPanelProps) {
         <VpnForm
           vpns={props.vpns}
           credentials={props.credentials}
+          projects={props.projects}
+          activeProjectId={props.activeProjectId}
           onCreate={props.onCreateVpn}
           onUpdate={props.onUpdateVpn}
           onDelete={props.onDeleteVpn}
@@ -162,24 +174,40 @@ const emptyVpnForm = {
   port: 10443,
   clientCertificate: "none" as ClientCertificate,
   credentialId: "",
+  // undefined = "the active project" (filled in by useInfraData on create);
+  // on an existing VPN this holds the owning project so editing it from a
+  // project it's merely shared into doesn't reassign ownership.
+  projectId: undefined as string | undefined,
+  sharedProjectIds: [] as string[],
 };
 
 function VpnForm({
   vpns,
   credentials,
+  projects,
+  activeProjectId,
   onCreate,
   onUpdate,
   onDelete,
 }: {
   vpns: Vpn[];
   credentials: Credential[];
-  onCreate: (vpn: Omit<Vpn, "id">) => Promise<void>;
-  onUpdate: (id: string, vpn: Omit<Vpn, "id">) => Promise<void>;
+  projects: Project[];
+  activeProjectId: string;
+  onCreate: (
+    vpn: Omit<Vpn, "id">,
+  ) => Promise<{ container: CommandResult } | void>;
+  onUpdate: (
+    id: string,
+    vpn: Omit<Vpn, "id">,
+  ) => Promise<{ container: CommandResult } | void>;
   onDelete: (id: string) => void;
 }) {
   const [form, setForm] = useState(emptyVpnForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [presetKey, setPresetKey] = useState("");
+  const [containerResult, setContainerResult] =
+    useState<CommandResult | null>(null);
 
   function applyPreset(key: string) {
     setPresetKey(key);
@@ -205,7 +233,18 @@ function VpnForm({
       port: vpn.port,
       clientCertificate: vpn.clientCertificate,
       credentialId: vpn.credentialId ?? "",
+      projectId: vpn.projectId,
+      sharedProjectIds: vpn.sharedProjectIds ?? [],
     });
+  }
+
+  function toggleShare(projectId: string) {
+    setForm((f) => ({
+      ...f,
+      sharedProjectIds: f.sharedProjectIds.includes(projectId)
+        ? f.sharedProjectIds.filter((id) => id !== projectId)
+        : [...f.sharedProjectIds, projectId],
+    }));
   }
 
   function cancelEdit() {
@@ -220,14 +259,16 @@ function VpnForm({
       className="flex flex-col gap-3"
       onSubmit={async (e) => {
         e.preventDefault();
+        setContainerResult(null);
         const payload = {
           ...form,
           credentialId: form.credentialId || undefined,
         };
-        if (editingId) {
-          await onUpdate(editingId, payload);
-        } else {
-          await onCreate(payload);
+        const result = editingId
+          ? await onUpdate(editingId, payload)
+          : await onCreate(payload);
+        if (result && (result.container.exitCode !== 0 || result.container.error)) {
+          setContainerResult(result.container);
         }
         setEditingId(null);
         setPresetKey("");
@@ -356,6 +397,49 @@ function VpnForm({
           ))}
         </select>
       </Field>
+      {(() => {
+        // The owning project is implicit (the active one for a new VPN, the
+        // stored one when editing) -- only the *other* projects are
+        // shareable, so it isn't offered as a checkbox against itself.
+        const ownerId = form.projectId ?? activeProjectId;
+        const shareable = projects.filter((p) => p.id !== ownerId);
+        if (shareable.length === 0) return null;
+        return (
+          <Field label="Also available in">
+            <div className="flex flex-col gap-1 rounded border border-border bg-surface p-2">
+              {shareable.map((p) => (
+                <label
+                  key={p.id}
+                  className="flex items-center gap-2 text-xs text-ink"
+                >
+                  <input
+                    type="checkbox"
+                    checked={form.sharedProjectIds.includes(p.id)}
+                    onChange={() => toggleShare(p.id)}
+                  />
+                  {p.name}
+                </label>
+              ))}
+            </div>
+            <span className="mt-1 text-[10px] leading-relaxed text-ink-faint">
+              The same tunnel shows up in these projects too, for members of
+              each. It stays owned by{" "}
+              {projects.find((p) => p.id === ownerId)?.name ?? "Unassigned"},
+              which is the only project it can be deleted from.
+            </span>
+          </Field>
+        );
+      })()}
+      {containerResult && (
+        <div className="rounded border border-red-500/40 bg-red-500/10 p-2 text-[11px] leading-relaxed text-red-400">
+          <div className="mb-1 font-bold uppercase tracking-widest">
+            Container failed to build
+          </div>
+          <pre className="whitespace-pre-wrap break-all">
+            {containerResult.stderr || containerResult.error || `exit code ${containerResult.exitCode}`}
+          </pre>
+        </div>
+      )}
       <div className="flex gap-2">
         <SubmitButton label={editingId ? "Update VPN" : "Add VPN"} />
         {editingId && (
@@ -380,7 +464,23 @@ function VpnForm({
                 className="flex items-center gap-2 rounded border border-border bg-surface px-2.5 py-1.5"
               >
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-xs text-ink">{v.name}</div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="truncate text-xs text-ink">{v.name}</span>
+                    {/* Shown only when you're looking at a project that
+                        borrowed this VPN rather than owning it -- deleting
+                        it from here is not yours to do. */}
+                    {(v.projectId ?? "") !== activeProjectId && (
+                      <span
+                        className="shrink-0 rounded border border-border px-1 text-[9px] uppercase tracking-widest text-ink-faint"
+                        title={`Owned by ${
+                          projects.find((p) => p.id === v.projectId)?.name ??
+                          "Unassigned"
+                        }`}
+                      >
+                        shared
+                      </span>
+                    )}
+                  </div>
                   <div className="truncate font-mono text-[11px] text-ink-faint">
                     {v.remoteGateway}
                   </div>
@@ -583,6 +683,8 @@ function HostForm({
   );
 }
 
+const SERVICE_TYPES = ["Docker", "Node", "LXC"];
+
 function ServiceForm({
   services,
   hosts,
@@ -596,7 +698,7 @@ function ServiceForm({
   onUpdate: (id: string, service: Omit<Service, "id">) => Promise<void>;
   onDelete: (id: string) => void;
 }) {
-  const emptyForm = { name: "", type: "Docker", hostId: "" };
+  const emptyForm = { name: "", type: SERVICE_TYPES[0], hostId: "" };
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -612,6 +714,11 @@ function ServiceForm({
 
   return (
     <div className="flex flex-col gap-4">
+    <DiscoverServices
+      hosts={hosts}
+      services={services}
+      onCreate={onCreate}
+    />
     <form
       className="flex flex-col gap-3"
       onSubmit={async (e) => {
@@ -639,9 +746,17 @@ function ServiceForm({
           value={form.type}
           onChange={(e) => setForm({ ...form, type: e.target.value })}
         >
-          <option value="Docker">Docker</option>
-          <option value="Node">Node</option>
-          <option value="Nginx">Nginx</option>
+          {SERVICE_TYPES.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+          {/* Keep a retired type (e.g. an older "Nginx" service) selectable
+              while editing it, so opening the form doesn't silently blank
+              the field and rewrite the record on save. */}
+          {!SERVICE_TYPES.includes(form.type) && (
+            <option value={form.type}>{form.type}</option>
+          )}
         </select>
       </Field>
       <Field label="Host">

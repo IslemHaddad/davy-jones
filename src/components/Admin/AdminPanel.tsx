@@ -5,7 +5,7 @@ import { AuditLogTab } from "./AuditLogTab";
 import { ProjectsTab } from "./ProjectsTab";
 import type { Project } from "../../types";
 
-type AdminTab = "users" | "projects" | "audit";
+export type AdminTab = "users" | "projects" | "audit";
 
 const TABS: { key: AdminTab; label: string; icon: typeof UsersIcon }[] = [
   { key: "users", label: "Users", icon: UsersIcon },
@@ -25,7 +25,7 @@ interface AdminPanelProps {
     project: Omit<Project, "id" | "createdAt">,
   ) => Promise<void>;
   onDeleteProject: (id: string) => void;
-  onProjectsChanged: () => Promise<void>;
+  onProjectsChanged: (newProjectId?: string) => Promise<void>;
 }
 
 export function AdminPanel(props: AdminPanelProps) {

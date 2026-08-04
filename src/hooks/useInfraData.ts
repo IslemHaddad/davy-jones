@@ -16,6 +16,12 @@ export function useInfraData(projectId: string) {
   const [savedCommands, setSavedCommands] = useState<SavedCommand[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Whether this project's data has ever arrived. It's the difference
+  // between "there is nothing to show" and "what's on screen is just stale":
+  // a refresh that fails after a good load must not cost the operator the
+  // graph they were reading. Reset on a project switch, because the previous
+  // project's resources are not this one's.
+  const [loadedOnce, setLoadedOnce] = useState(false);
 
   const reload = useCallback(async () => {
     setError(null);
@@ -32,6 +38,7 @@ export function useInfraData(projectId: string) {
       setServices(s);
       setCredentials(c);
       setSavedCommands(sc);
+      setLoadedOnce(true);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -40,13 +47,21 @@ export function useInfraData(projectId: string) {
   }, [projectId]);
 
   useEffect(() => {
+    setLoadedOnce(false);
+  }, [projectId]);
+
+  useEffect(() => {
     reload();
   }, [reload]);
 
   const createVpn = useCallback(
     async (vpn: Omit<Vpn, "id">) => {
-      await api.vpns.create({ ...vpn, projectId });
+      const created = await api.vpns.create({
+        ...vpn,
+        projectId: vpn.projectId ?? projectId,
+      });
       await reload();
+      return created;
     },
     [reload, projectId],
   );
@@ -73,8 +88,14 @@ export function useInfraData(projectId: string) {
   );
   const updateVpn = useCallback(
     async (id: string, vpn: Omit<Vpn, "id">) => {
-      await api.vpns.update(id, { ...vpn, projectId });
+      // A VPN shared into the active project is still *owned* by another
+      // one -- forcing the active project here would silently steal it.
+      const updated = await api.vpns.update(id, {
+        ...vpn,
+        projectId: vpn.projectId ?? projectId,
+      });
       await reload();
+      return updated;
     },
     [reload, projectId],
   );
@@ -151,6 +172,7 @@ export function useInfraData(projectId: string) {
     savedCommands,
     loading,
     error,
+    loadedOnce,
     reload,
     createVpn,
     createHost,

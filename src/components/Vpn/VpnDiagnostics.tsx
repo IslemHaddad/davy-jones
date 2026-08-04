@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Play, Square, RefreshCw, Wifi, Key } from "lucide-react";
 import { api } from "../../lib/api";
 import type { CommandResult, Credential, Vpn } from "../../types";
+import { useAuth } from "../../context/AuthContext";
 
 function isNoSuchContainer(result: CommandResult): boolean {
   return result.stderr.includes("No such container");
@@ -34,6 +35,7 @@ export function VpnDiagnostics({
   vpn: Vpn;
   credential?: Credential;
 }) {
+  const { canWrite } = useAuth();
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [actionResult, setActionResult] = useState<CommandResult | null>(
@@ -170,6 +172,7 @@ export function VpnDiagnostics({
             {status ?? "checking..."}
           </span>
         </div>
+        {canWrite && (
         <div className="flex gap-2">
           <button
             onClick={handleStart}
@@ -188,6 +191,7 @@ export function VpnDiagnostics({
             Stop
           </button>
         </div>
+        )}
         <OutputPane result={actionResult} />
       </div>
 
@@ -223,14 +227,14 @@ export function VpnDiagnostics({
           />
           <button
             onClick={handlePing}
-            disabled={busy !== null || !pingTarget.trim()}
+            disabled={busy !== null || !pingTarget.trim() || !canWrite}
             className="rounded border border-border-strong bg-surface px-2.5 py-1.5 text-xs text-ink transition-colors hover:bg-card disabled:opacity-40"
           >
             Ping
           </button>
           <button
             onClick={handleNc}
-            disabled={busy !== null || !pingTarget.trim()}
+            disabled={busy !== null || !pingTarget.trim() || !canWrite}
             className="rounded border border-border-strong bg-surface px-2.5 py-1.5 text-xs text-ink transition-colors hover:bg-card disabled:opacity-40"
           >
             Check :22

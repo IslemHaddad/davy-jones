@@ -59,6 +59,52 @@ func writeProjectForbidden(w http.ResponseWriter) {
 	writeError(w, http.StatusForbidden, "not a member of this project")
 }
 
+// vpnInProject reports whether a VPN should appear under the given project,
+// which is true both for the project that owns it and for any project it has
+// been shared into.
+func vpnInProject(v Vpn, projectID string) bool {
+	if v.ProjectID == projectID {
+		return true
+	}
+	for _, id := range v.SharedProjectIDs {
+		if id == projectID {
+			return true
+		}
+	}
+	return false
+}
+
+// canAccessVpn is canAccessProject widened by sharing: membership of the
+// owning project OR of any project the VPN is shared into is enough. Sharing
+// a VPN into a project is exactly the act of granting that project's members
+// access to it, so this is the intended widening, not a hole -- and only
+// someone who can already access a project may share into it (see the
+// validation in handlers_config.go).
+func canAccessVpn(ctx context.Context, storage *Storage, v Vpn) bool {
+	if canAccessProject(ctx, storage, v.ProjectID) {
+		return true
+	}
+	for _, id := range v.SharedProjectIDs {
+		if canAccessProject(ctx, storage, id) {
+			return true
+		}
+	}
+	return false
+}
+
+// canShareInto reports whether the caller may share a VPN into every project
+// on its SharedProjectIDs list. Sharing grants that project's members access
+// to the VPN, so it can only be done by someone who already belongs there --
+// otherwise sharing would be a way to hand out access you don't hold.
+func canShareInto(ctx context.Context, storage *Storage, v Vpn) bool {
+	for _, id := range v.SharedProjectIDs {
+		if !canAccessProject(ctx, storage, id) {
+			return false
+		}
+	}
+	return true
+}
+
 // canAccessHost mirrors canAccessProject for resources (like SavedCommand)
 // that are scoped to a host rather than carrying their own ProjectID
 // directly. A host ID that no longer resolves to an existing host is

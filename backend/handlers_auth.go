@@ -8,6 +8,7 @@ func publicUser(u User) map[string]any {
 	return map[string]any{
 		"id":        u.ID,
 		"username":  u.Username,
+		"role":      normalizeRole(u.Role),
 		"createdAt": u.CreatedAt,
 	}
 }
@@ -93,7 +94,11 @@ func registerAuthRoutes(mux *http.ServeMux, authMgr *AuthManager, sealMgr *SealM
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"valid": true,
-			"user":  map[string]string{"id": sess.UserID, "username": sess.Username},
+			"user": map[string]any{
+				"id":       sess.UserID,
+				"username": sess.Username,
+				"role":     normalizeRole(sess.Role),
+			},
 		})
 	})
 }

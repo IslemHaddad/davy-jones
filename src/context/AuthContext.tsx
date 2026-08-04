@@ -25,6 +25,11 @@ interface AuthContextValue {
   sealStatus: SealStatus | null;
   freshShares: string[] | null;
   currentUser: User | null;
+  /** Mirrors the server's role gating so the UI doesn't offer 403s. The
+   * server is still the enforcement point -- these only shape what's shown. */
+  canWrite: boolean;
+  canSeeSecrets: boolean;
+  isAdmin: boolean;
   initializeSeal: () => Promise<void>;
   submitShare: (share: string) => Promise<void>;
   setup: (username: string, password: string) => Promise<void>;
@@ -152,6 +157,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setPhase("locked");
   }, []);
 
+  const role = currentUser?.role ?? "admin";
+
   return (
     <AuthContext.Provider
       value={{
@@ -160,6 +167,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         sealStatus,
         freshShares,
         currentUser,
+        canWrite: role === "admin" || role === "readwrite" || role === "write",
+        canSeeSecrets: role === "admin" || role === "readwrite",
+        isAdmin: role === "admin",
         initializeSeal,
         submitShare,
         setup,

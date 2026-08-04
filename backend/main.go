@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"time"
 )
 
 // cfg holds the resolved runtime configuration (env-overridable defaults),
@@ -38,6 +39,9 @@ func main() {
 	registerProjectRoutes(mux, storage, authMgr, sealMgr, auditLog)
 	registerConfigRoutes(mux, storage, authMgr, sealMgr, auditLog)
 	registerSSHRoutes(mux, storage, authMgr, sealMgr, auditLog)
+	registerMetricsRoutes(mux, storage, authMgr, sealMgr, NewMetricsCollector())
+	registerLayoutRoutes(mux, storage, authMgr, sealMgr)
+	registerDiscoveryRoutes(mux, storage, authMgr, sealMgr, auditLog)
 	registerVPNRoutes(mux, storage, authMgr, sealMgr, auditLog)
 	registerSavedCommandRoutes(mux, storage, authMgr, sealMgr, auditLog)
 	registerTerminalRoutes(mux, storage, authMgr, sealMgr, auditLog)
@@ -53,7 +57,18 @@ func main() {
 
 	addr := net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
 	log.Printf("listening on http://%s", addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	// Timeouts are set explicitly because http.ListenAndServe's zero-value
+	// server has none: a client that opens a connection and never finishes
+	// its request would otherwise hold a goroutine indefinitely. WriteTimeout
+	// stays off -- the terminal WebSocket and metrics streams are long-lived
+	// by design and a write deadline would kill them mid-session.
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           securityHeaders(mux),
+		ReadHeaderTimeout: 15 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+	if err := srv.ListenAndServe(); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
 }

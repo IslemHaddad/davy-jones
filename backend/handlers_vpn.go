@@ -26,7 +26,7 @@ func registerVPNRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManage
 			writeError(w, http.StatusNotFound, "vpn not found")
 			return
 		}
-		if !canAccessProject(r.Context(), storage, vpn.ProjectID) {
+		if !canAccessVpn(r.Context(), storage, vpn) {
 			writeProjectForbidden(w)
 			return
 		}
@@ -41,7 +41,7 @@ func registerVPNRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManage
 			writeError(w, http.StatusNotFound, "vpn not found")
 			return
 		}
-		if !canAccessProject(r.Context(), storage, vpn.ProjectID) {
+		if !canAccessVpn(r.Context(), storage, vpn) {
 			writeProjectForbidden(w)
 			return
 		}
@@ -56,7 +56,7 @@ func registerVPNRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManage
 			writeError(w, http.StatusNotFound, "vpn not found")
 			return
 		}
-		if !canAccessProject(r.Context(), storage, vpn.ProjectID) {
+		if !canAccessVpn(r.Context(), storage, vpn) {
 			writeProjectForbidden(w)
 			return
 		}
@@ -69,7 +69,7 @@ func registerVPNRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManage
 			writeError(w, http.StatusNotFound, "vpn not found")
 			return
 		}
-		if !canAccessProject(r.Context(), storage, vpn.ProjectID) {
+		if !canAccessVpn(r.Context(), storage, vpn) {
 			writeProjectForbidden(w)
 			return
 		}
@@ -82,7 +82,7 @@ func registerVPNRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManage
 			writeError(w, http.StatusNotFound, "vpn not found")
 			return
 		}
-		if !canAccessProject(r.Context(), storage, vpn.ProjectID) {
+		if !canAccessVpn(r.Context(), storage, vpn) {
 			writeProjectForbidden(w)
 			return
 		}
@@ -104,7 +104,7 @@ func registerVPNRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManage
 			writeError(w, http.StatusNotFound, "vpn not found")
 			return
 		}
-		if !canAccessProject(r.Context(), storage, vpn.ProjectID) {
+		if !canAccessVpn(r.Context(), storage, vpn) {
 			writeProjectForbidden(w)
 			return
 		}

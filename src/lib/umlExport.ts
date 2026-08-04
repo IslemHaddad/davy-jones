@@ -1,4 +1,11 @@
-import type { Credential, Host, Project, Service, Vpn } from "../types";
+import type {
+  Credential,
+  Host,
+  NodePosition,
+  Project,
+  Service,
+  Vpn,
+} from "../types";
 
 interface ExportOpts {
   includeSecrets: boolean;
@@ -108,6 +115,17 @@ function drawioLabel(s: string): string {
   return xmlEscape(s).replace(/\n/g, "&#10;");
 }
 
+/** The hand-placed position for a node id, or the generated fallback. */
+function placed(
+  positions: Record<string, NodePosition>,
+  nodeId: string,
+  fallbackX: number,
+  fallbackY: number,
+): NodePosition {
+  const p = positions[nodeId];
+  return p ? { x: Math.round(p.x), y: Math.round(p.y) } : { x: fallbackX, y: fallbackY };
+}
+
 // Generates a draw.io / diagrams.net file (mxGraph XML): VPNs and hosts as
 // boxes, services as boxes hanging off their host, a sticky-note-style
 // credential summary per host, and edges for VPN->host and host->service.
@@ -120,6 +138,12 @@ export function buildDrawIO(
   services: Service[],
   credentials: Credential[],
   opts: ExportOpts,
+  // The canvas arrangement saved for this project, keyed by graph node id.
+  // When a node has been placed by hand the exported diagram uses that spot
+  // instead of the generated grid, so the file matches what you arranged on
+  // screen. Nodes never dragged fall back to the generated position, so a
+  // project with no saved layout exports exactly as it did before.
+  positions: Record<string, NodePosition> = {},
 ): string {
   const credById = new Map(credentials.map((c) => [c.id, c]));
   const servicesByHost = new Map<string, Service[]>();
@@ -137,16 +161,18 @@ export function buildDrawIO(
     const id = nextId++;
     vpnCellId.set(v.id, id);
     const label = drawioLabel(`${v.name}\n${v.remoteGateway}`);
+    const at = placed(positions, `vpn-${v.id}`, i * 220 + 40, 40);
     cells.push(
       `<mxCell id="${id}" value="${label}" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">` +
-        `<mxGeometry x="${i * 220 + 40}" y="40" width="160" height="60" as="geometry" /></mxCell>`,
+        `<mxGeometry x="${at.x}" y="${at.y}" width="160" height="60" as="geometry" /></mxCell>`,
     );
   });
 
   hosts.forEach((h, i) => {
     const id = nextId++;
-    const x = i * 220 + 40;
-    const y = 200;
+    const at = placed(positions, `host-${h.id}`, i * 220 + 40, 200);
+    const x = at.x;
+    const y = at.y;
     const label = drawioLabel(`${h.name}\n${h.ip}`);
     cells.push(
       `<mxCell id="${id}" value="${label}" style="whiteSpace=wrap;html=0;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">` +
@@ -184,10 +210,15 @@ export function buildDrawIO(
     const hostServices = servicesByHost.get(h.id) ?? [];
     hostServices.forEach((s, j) => {
       const svcId = nextId++;
-      const svcY = y + 80 + noteHeight + 20 + j * 50;
+      const svcAt = placed(
+        positions,
+        `service-${s.id}`,
+        x,
+        y + 80 + noteHeight + 20 + j * 50,
+      );
       cells.push(
         `<mxCell id="${svcId}" value="${drawioLabel(`${s.name} (${s.type})`)}" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">` +
-          `<mxGeometry x="${x}" y="${svcY}" width="160" height="40" as="geometry" /></mxCell>`,
+          `<mxGeometry x="${svcAt.x}" y="${svcAt.y}" width="160" height="40" as="geometry" /></mxCell>`,
       );
       const svcEdgeId = nextId++;
       cells.push(

@@ -21,6 +21,13 @@ type Vpn struct {
 	ClientCertificate string `json:"clientCertificate"` // none|local|smartcard
 	CredentialID      string `json:"credentialId,omitempty"`
 	ProjectID         string `json:"projectId,omitempty"` // "" == Unassigned
+	// SharedProjectIDs lists further projects this VPN also appears in.
+	// One physical tunnel is often the way into several clients'
+	// environments, so a VPN is shareable rather than owned outright by
+	// whichever project happened to create it. ProjectID stays the owner
+	// (it is what Delete and re-provisioning are attributed to); sharing
+	// only widens who can see and use it.
+	SharedProjectIDs []string `json:"sharedProjectIds,omitempty"`
 }
 
 type Host struct {
@@ -36,7 +43,7 @@ type Host struct {
 type Service struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
-	Type      string `json:"type"` // e.g. Docker, Node, Nginx
+	Type      string `json:"type"` // e.g. Docker, Node, LXC
 	HostID    string `json:"hostId"`
 	ProjectID string `json:"projectId,omitempty"`
 }
@@ -82,7 +89,27 @@ type User struct {
 	ID           string    `json:"id"`
 	Username     string    `json:"username"`
 	PasswordHash string    `json:"passwordHash"`
+	Role         Role      `json:"role,omitempty"` // "" == predates roles, see normalizeRole
 	CreatedAt    time.Time `json:"createdAt"`
+}
+
+// NodePosition is where a node sits on the canvas, in the graph's own
+// coordinate space (the same units React Flow reports on drag).
+type NodePosition struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+}
+
+// GraphLayout is one project's hand-arranged canvas, keyed by the graph's
+// node ids ("host-<id>", "vpn-<id>", "service-<id>"). Stored per project
+// rather than per user on purpose: the arrangement is documentation of the
+// environment -- everyone who opens the project, and every diagram exported
+// from it, should see the same picture. Nodes with no entry fall back to the
+// automatic layout, so this never needs backfilling.
+type GraphLayout struct {
+	ProjectID string                  `json:"projectId"` // "" == Unassigned
+	Positions map[string]NodePosition `json:"positions"`
+	UpdatedAt time.Time               `json:"updatedAt"`
 }
 
 // SavedCommand is a named shell command bound to a host -- e.g. "Tail nginx"

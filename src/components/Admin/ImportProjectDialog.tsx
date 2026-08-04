@@ -15,7 +15,7 @@ interface ImportSummary {
 interface ImportProjectDialogProps {
   existingProjects: Project[];
   onClose: () => void;
-  onImported: () => Promise<void>;
+  onImported: (newProjectId: string) => Promise<void>;
 }
 
 function dedupeName(name: string, existing: Project[]): string {
@@ -136,7 +136,7 @@ export function ImportProjectDialog({
         credentials: credIdMap.size,
         skippedCredentials,
       });
-      await onImported();
+      await onImported(project.id);
     } catch (e) {
       setError(String(e));
     } finally {

@@ -205,6 +205,28 @@ func (s *Storage) SaveProjects(ctx context.Context, projects []Project) error {
 	return s.writeEncrypted("projects.json", key, projects)
 }
 
+// GraphLayout Storage
+func (s *Storage) GetLayouts(ctx context.Context) ([]GraphLayout, error) {
+	key, err := sealKey(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var layouts []GraphLayout
+	err = s.readEncrypted("layouts.json", key, &layouts)
+	if layouts == nil {
+		layouts = []GraphLayout{}
+	}
+	return layouts, err
+}
+
+func (s *Storage) SaveLayouts(ctx context.Context, layouts []GraphLayout) error {
+	key, err := sealKey(ctx)
+	if err != nil {
+		return err
+	}
+	return s.writeEncrypted("layouts.json", key, layouts)
+}
+
 // SavedCommand Storage
 func (s *Storage) GetSavedCommands(ctx context.Context) ([]SavedCommand, error) {
 	key, err := sealKey(ctx)

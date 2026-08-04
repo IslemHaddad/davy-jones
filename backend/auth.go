@@ -31,7 +31,12 @@ var dummyPasswordHash = func() string {
 type Session struct {
 	UserID   string
 	Username string
-	Expiry   time.Time
+	// Role is snapshotted at login so permission checks don't decrypt the
+	// user store on every request. Changing a user's role purges their live
+	// sessions (see SetUserRole), so a stale snapshot can't outlive the
+	// change it would contradict.
+	Role   Role
+	Expiry time.Time
 }
 
 type AuthManager struct {
@@ -81,6 +86,7 @@ func (am *AuthManager) ensureMigrated(ctx context.Context) error {
 			ID:           newID("user"),
 			Username:     "admin",
 			PasswordHash: legacy.PasswordHash,
+			Role:         RoleAdmin,
 			CreatedAt:    time.Now(),
 		}
 		am.migrateErr = am.storage.SaveUsers(ctx, []User{admin})
@@ -108,6 +114,12 @@ func validateCredentials(username, password string) error {
 	if len(username) > 64 {
 		return errors.New("username must be at most 64 characters long")
 	}
+	return validatePassword(password)
+}
+
+// validatePassword is the one place the password rule lives, so a password
+// set at account creation and one set by ChangePassword can't drift apart.
+func validatePassword(password string) error {
 	if len(password) < 6 {
 		return errors.New("password must be at least 6 characters long")
 	}
@@ -125,23 +137,135 @@ func (am *AuthManager) CreateFirstUser(ctx context.Context, username, password s
 	if isSetup {
 		return User{}, errors.New("a user account has already been created")
 	}
-	return am.createUserLocked(ctx, username, password, nil)
+	// The founding account is necessarily an admin: there is nobody else
+	// who could grant it the right to manage users afterwards.
+	return am.createUserLocked(ctx, username, password, RoleAdmin, nil)
 }
 
-// CreateUser adds another account. Flat model -- any authenticated caller
-// may call this, there is no admin/member distinction.
-func (am *AuthManager) CreateUser(ctx context.Context, username, password string) (User, error) {
+// CreateUser adds another account with an explicit role. Restricted to
+// administrators at the HTTP boundary (see handlers_users.go) -- otherwise
+// any account could mint itself a more powerful one.
+func (am *AuthManager) CreateUser(ctx context.Context, username, password string, role Role) (User, error) {
+	if err := validateRole(role); err != nil {
+		return User{}, err
+	}
 	users, err := am.storage.GetUsers(ctx)
 	if err != nil {
 		return User{}, err
 	}
-	return am.createUserLocked(ctx, username, password, users)
+	return am.createUserLocked(ctx, username, password, role, users)
+}
+
+// SetUserRole changes an account's role and drops that user's live sessions,
+// so a demotion takes effect immediately instead of waiting out a token that
+// still carries the old role. Refuses to remove the last admin -- an install
+// with nobody able to manage users can't be recovered from the UI.
+func (am *AuthManager) SetUserRole(ctx context.Context, id string, role Role) (User, error) {
+	if err := validateRole(role); err != nil {
+		return User{}, err
+	}
+	users, err := am.storage.GetUsers(ctx)
+	if err != nil {
+		return User{}, err
+	}
+
+	idx := -1
+	admins := 0
+	for i, u := range users {
+		if u.ID == id {
+			idx = i
+		}
+		if isAdmin(u.Role) {
+			admins++
+		}
+	}
+	if idx == -1 {
+		return User{}, errors.New("user not found")
+	}
+	if isAdmin(users[idx].Role) && role != RoleAdmin && admins <= 1 {
+		return User{}, errors.New("cannot remove the last administrator")
+	}
+
+	users[idx].Role = role
+	if err := am.storage.SaveUsers(ctx, users); err != nil {
+		return User{}, err
+	}
+
+	am.mu.Lock()
+	defer am.mu.Unlock()
+	for tok, sess := range am.sessions {
+		if sess.UserID == id {
+			delete(am.sessions, tok)
+		}
+	}
+	return users[idx], nil
+}
+
+// ChangePassword lets an account change its own password. keepToken is the
+// caller's live session, which survives; every other session that user holds
+// is dropped.
+//
+// The current password is required even though the caller already proved they
+// hold a valid session. A session token is a bearer credential that can be
+// stolen (it lives in the browser's localStorage), and without this check
+// stealing one would be enough to lock the real owner out of their account
+// permanently rather than just until the token expires.
+//
+// Dropping the user's other sessions is the other half: changing a password
+// because you think it leaked is pointless if whoever has the old one keeps
+// their session. The caller's own token is kept so the UI doesn't throw them
+// back to the login screen for doing the right thing.
+func (am *AuthManager) ChangePassword(ctx context.Context, userID, currentPassword, newPassword, keepToken string) error {
+	if err := validatePassword(newPassword); err != nil {
+		return err
+	}
+	users, err := am.storage.GetUsers(ctx)
+	if err != nil {
+		return err
+	}
+
+	idx := -1
+	for i := range users {
+		if users[i].ID == userID {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return errors.New("user not found")
+	}
+
+	if bcrypt.CompareHashAndPassword(
+		[]byte(users[idx].PasswordHash), []byte(currentPassword)) != nil {
+		return errors.New("current password is incorrect")
+	}
+	if currentPassword == newPassword {
+		return errors.New("new password must be different from the current one")
+	}
+
+	hashed, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	users[idx].PasswordHash = string(hashed)
+	if err := am.storage.SaveUsers(ctx, users); err != nil {
+		return err
+	}
+
+	am.mu.Lock()
+	defer am.mu.Unlock()
+	for tok, sess := range am.sessions {
+		if sess.UserID == userID && tok != keepToken {
+			delete(am.sessions, tok)
+		}
+	}
+	return nil
 }
 
 // createUserLocked does the actual validate+append+save. existing may be
 // nil, in which case it's loaded fresh (used by CreateFirstUser, where the
 // caller already knows the store is empty).
-func (am *AuthManager) createUserLocked(ctx context.Context, username, password string, existing []User) (User, error) {
+func (am *AuthManager) createUserLocked(ctx context.Context, username, password string, role Role, existing []User) (User, error) {
 	if err := validateCredentials(username, password); err != nil {
 		return User{}, err
 	}
@@ -169,6 +293,7 @@ func (am *AuthManager) createUserLocked(ctx context.Context, username, password 
 		ID:           newID("user"),
 		Username:     username,
 		PasswordHash: string(hashed),
+		Role:         role,
 		CreatedAt:    time.Now(),
 	}
 	users = append(users, u)
@@ -263,6 +388,7 @@ func (am *AuthManager) Login(ctx context.Context, username, password string) (st
 	am.sessions[token] = Session{
 		UserID:   match.ID,
 		Username: match.Username,
+		Role:     normalizeRole(match.Role),
 		Expiry:   time.Now().Add(am.sessionTTL),
 	}
 
@@ -327,10 +453,28 @@ func withUser(ctx context.Context, userID, username string) context.Context {
 	return context.WithValue(ctx, userCtxKey{}, Session{UserID: userID, Username: username})
 }
 
+// withSession is withUser plus the caller's role, used by the request
+// middleware; withUser remains for the few places that synthesize an
+// identity without a live session (auth handlers logging their own events).
+func withSession(ctx context.Context, sess Session) context.Context {
+	return context.WithValue(ctx, userCtxKey{}, sess)
+}
+
 func userFromContext(ctx context.Context) (userID, username string, ok bool) {
 	sess, found := ctx.Value(userCtxKey{}).(Session)
 	if !found {
 		return "", "", false
 	}
 	return sess.UserID, sess.Username, true
+}
+
+// roleFromContext returns the caller's effective role. A missing session
+// resolves through normalizeRole, but every role-gated route runs behind
+// requireSession, so that path isn't reachable in practice.
+func roleFromContext(ctx context.Context) Role {
+	sess, found := ctx.Value(userCtxKey{}).(Session)
+	if !found {
+		return ""
+	}
+	return normalizeRole(sess.Role)
 }

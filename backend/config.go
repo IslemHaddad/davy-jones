@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -15,6 +16,11 @@ type Config struct {
 	Port int
 
 	DataDir string
+
+	// AllowedOrigins lets the terminal WebSocket accept handshakes from
+	// origins other than this server's own (the Vite dev server, mainly).
+	// Empty in production, where same-origin is the only legitimate case.
+	AllowedOrigins []string
 
 	SessionTTL time.Duration
 
@@ -38,6 +44,7 @@ func loadConfig() Config {
 		Host:           getEnvString("DJ_HOST", "0.0.0.0"),
 		Port:           getEnvInt("DJ_PORT", 8080),
 		DataDir:        getEnvString("DJ_DATA_DIR", defaultDataDir()),
+		AllowedOrigins: getEnvList("DJ_ALLOWED_ORIGINS"),
 		SessionTTL:     getEnvSeconds("DJ_SESSION_TTL_SECONDS", 4*3600),
 		SSHPort:        getEnvInt("DJ_SSH_PORT", 22),
 		SSHDialTimeout: getEnvSeconds("DJ_SSH_DIAL_TIMEOUT_SECONDS", 8),
@@ -70,6 +77,18 @@ func getEnvString(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// getEnvList reads a comma-separated env var into a slice, dropping empty
+// entries so a trailing comma or an unset variable both yield nothing.
+func getEnvList(key string) []string {
+	var out []string
+	for _, part := range strings.Split(os.Getenv(key), ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 func getEnvInt(key string, fallback int) int {

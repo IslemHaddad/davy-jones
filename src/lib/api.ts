@@ -2,9 +2,15 @@ import type {
   AuditEntry,
   CommandResult,
   Credential,
+  DiscoveryResult,
+  GraphLayout,
   Host,
+  HostMetricsResponse,
+  NodePosition,
   Project,
+  Role,
   SSHResult,
+  ServiceStatus,
   SavedCommand,
   SealStatus,
   Service,
@@ -53,6 +59,9 @@ async function request<T>(
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
+  const contentType = res.headers.get("content-type") ?? "";
+  const isJson = contentType.includes("application/json");
+
   let json: unknown = null;
   try {
     json = await res.json();
@@ -67,6 +76,18 @@ async function request<T>(
     throw new Error(message);
   }
 
+  // A path the server doesn't know falls through to the SPA handler, which
+  // answers index.html with a 200. Without this check that HTML parses as
+  // "no JSON" and request() hands back null typed as T -- the caller then
+  // does .map() on it and takes the whole UI down with a blank screen. The
+  // usual cause is a frontend newer than the running backend, so say so.
+  if (!isJson) {
+    throw new Error(
+      `${method} ${path} did not return JSON (got ${contentType || "no content-type"}). ` +
+        `This route is missing from the running backend -- restart it so it matches the frontend.`,
+    );
+  }
+
   return json as T;
 }
 
@@ -74,9 +95,14 @@ export const api = {
   vpns: {
     list: (projectId?: string) =>
       request<Vpn[]>("GET", `/api/vpns${projectQuery(projectId)}`),
-    create: (vpn: Omit<Vpn, "id">) => request<Vpn>("POST", "/api/vpns", vpn),
+    create: (vpn: Omit<Vpn, "id">) =>
+      request<Vpn & { container: CommandResult }>("POST", "/api/vpns", vpn),
     update: (id: string, vpn: Omit<Vpn, "id">) =>
-      request<Vpn>("PUT", `/api/vpns/${id}`, vpn),
+      request<Vpn & { container: CommandResult }>(
+        "PUT",
+        `/api/vpns/${id}`,
+        vpn,
+      ),
     remove: (id: string) =>
       request<{ ok: boolean }>("DELETE", `/api/vpns/${id}`),
   },
@@ -92,6 +118,16 @@ export const api = {
       request<{ ok: boolean }>("DELETE", `/api/hosts/${id}`),
     ping: (id: string) =>
       request<{ online: boolean }>("GET", `/api/hosts/${id}/ping`),
+    metrics: (id: string) =>
+      request<HostMetricsResponse>("GET", `/api/hosts/${id}/metrics`),
+    discoverServices: (id: string, type: string) =>
+      request<DiscoveryResult>("POST", `/api/hosts/${id}/discover-services`, {
+        type,
+      }),
+    serviceStatus: (id: string, names: string[]) =>
+      request<ServiceStatus[]>("POST", `/api/hosts/${id}/service-status`, {
+        names,
+      }),
   },
 
   services: {
@@ -117,6 +153,16 @@ export const api = {
       request<Credential>("PUT", `/api/credentials/${id}`, credential),
     remove: (id: string) =>
       request<{ ok: boolean }>("DELETE", `/api/credentials/${id}`),
+  },
+
+  layout: {
+    get: (projectId: string) =>
+      request<GraphLayout>(
+        "GET",
+        `/api/layout?projectId=${encodeURIComponent(projectId)}`,
+      ),
+    save: (projectId: string, positions: Record<string, NodePosition>) =>
+      request<GraphLayout>("PUT", "/api/layout", { projectId, positions }),
   },
 
   projects: {
@@ -178,10 +224,18 @@ export const api = {
 
   users: {
     list: () => request<User[]>("GET", "/api/users"),
-    create: (username: string, password: string) =>
-      request<User>("POST", "/api/users", { username, password }),
+    create: (username: string, password: string, role: Role) =>
+      request<User>("POST", "/api/users", { username, password, role }),
+    setRole: (id: string, role: Role) =>
+      request<User>("PUT", `/api/users/${id}/role`, { role }),
     remove: (id: string) =>
       request<{ ok: boolean }>("DELETE", `/api/users/${id}`),
+    /** Changes the signed-in account's own password; no id, by design. */
+    changeOwnPassword: (currentPassword: string, newPassword: string) =>
+      request<{ ok: boolean }>("POST", "/api/users/me/password", {
+        currentPassword,
+        newPassword,
+      }),
   },
 
   audit: {

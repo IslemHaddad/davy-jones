@@ -6,13 +6,24 @@ import (
 	"net/http"
 )
 
+// VpnWithProvisionResult is what Create/Update return: the saved VPN plus
+// the outcome of (re)building its container, so a provisioning failure
+// (missing image, bad command, docker down, etc.) shows up immediately in
+// the UI instead of silently leaving no container behind -- which used to
+// surface later as a confusing "No such container" the first time someone
+// clicked Start.
+type VpnWithProvisionResult struct {
+	Vpn
+	Container CommandResult `json:"container"`
+}
+
 // provisionVpnContainer (re)builds a VPN's docker container right after
 // it's created or edited, so Start/Stop afterward just toggle an
 // already-existing container instead of building one from scratch on every
-// click. Best-effort: a docker failure here doesn't fail the request, since
-// the VPN's config is already saved -- it's recorded in the audit log so
-// it's visible without blocking on it.
-func provisionVpnContainer(ctx context.Context, storage *Storage, auditLog *AuditLogger, v Vpn) {
+// click. Doesn't fail the request on a docker error (the VPN's config is
+// already saved either way) -- the result is both audit-logged and handed
+// back to the caller to display.
+func provisionVpnContainer(ctx context.Context, storage *Storage, auditLog *AuditLogger, v Vpn) CommandResult {
 	var cred Credential
 	if v.CredentialID != "" {
 		if c, ok := findCredential(ctx, storage, v.CredentialID); ok {
@@ -27,6 +38,7 @@ func provisionVpnContainer(ctx context.Context, storage *Storage, auditLog *Audi
 		detail = result.Stderr
 	}
 	auditLog.Log(ctx, "vpn.docker.provision", "vpn", v.ID, v.Name, detail)
+	return result
 }
 
 // filterByProjectAccess narrows items to what the caller may see: an exact
@@ -72,8 +84,26 @@ func registerConfigRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMan
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		vpns = filterByProjectAccess(r, storage, vpns, func(v Vpn) string { return v.ProjectID })
-		writeJSON(w, http.StatusOK, vpns)
+		// VPNs can't use filterByProjectAccess: they may belong to several
+		// projects at once (see Vpn.SharedProjectIDs), so both the exact
+		// ?projectId= match and the access check have to consider the
+		// shared list rather than a single owning project.
+		out := vpns[:0]
+		if r.URL.Query().Has("projectId") {
+			pid := r.URL.Query().Get("projectId")
+			for _, v := range vpns {
+				if vpnInProject(v, pid) {
+					out = append(out, v)
+				}
+			}
+		} else {
+			for _, v := range vpns {
+				if canAccessVpn(r.Context(), storage, v) {
+					out = append(out, v)
+				}
+			}
+		}
+		writeJSON(w, http.StatusOK, out)
 	}))
 	mux.HandleFunc("POST /api/vpns", protected(authMgr, sealMgr, func(w http.ResponseWriter, r *http.Request) {
 		var v Vpn
@@ -82,6 +112,10 @@ func registerConfigRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMan
 			return
 		}
 		if !canAccessProject(r.Context(), storage, v.ProjectID) {
+			writeProjectForbidden(w)
+			return
+		}
+		if !canShareInto(r.Context(), storage, v) {
 			writeProjectForbidden(w)
 			return
 		}
@@ -100,8 +134,8 @@ func registerConfigRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMan
 			return
 		}
 		auditLog.Log(r.Context(), "vpn.create", "vpn", v.ID, v.Name, "")
-		provisionVpnContainer(r.Context(), storage, auditLog, v)
-		writeJSON(w, http.StatusCreated, v)
+		containerResult := provisionVpnContainer(r.Context(), storage, auditLog, v)
+		writeJSON(w, http.StatusCreated, VpnWithProvisionResult{Vpn: v, Container: containerResult})
 	}))
 	mux.HandleFunc("PUT /api/vpns/{id}", protected(authMgr, sealMgr, func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
@@ -118,7 +152,14 @@ func registerConfigRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMan
 		found := false
 		for i := range vpns {
 			if vpns[i].ID == id {
-				if !canAccessProject(r.Context(), storage, vpns[i].ProjectID) || !canAccessProject(r.Context(), storage, updated.ProjectID) {
+				// The existing VPN is checked with canAccessVpn so a member
+				// of a project it was *shared into* can edit it too; the
+				// incoming ProjectID and share list are checked strictly,
+				// so nobody can move or share a VPN somewhere they have no
+				// access to themselves.
+				if !canAccessVpn(r.Context(), storage, vpns[i]) ||
+					!canAccessProject(r.Context(), storage, updated.ProjectID) ||
+					!canShareInto(r.Context(), storage, updated) {
 					writeProjectForbidden(w)
 					return
 				}
@@ -137,8 +178,8 @@ func registerConfigRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMan
 			return
 		}
 		auditLog.Log(r.Context(), "vpn.update", "vpn", updated.ID, updated.Name, "")
-		provisionVpnContainer(r.Context(), storage, auditLog, updated)
-		writeJSON(w, http.StatusOK, updated)
+		containerResult := provisionVpnContainer(r.Context(), storage, auditLog, updated)
+		writeJSON(w, http.StatusOK, VpnWithProvisionResult{Vpn: updated, Container: containerResult})
 	}))
 	mux.HandleFunc("DELETE /api/vpns/{id}", protected(authMgr, sealMgr, func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
@@ -156,6 +197,8 @@ func registerConfigRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMan
 				break
 			}
 		}
+		// Deletion is the owner's call: being a member of a project the VPN
+		// was merely shared into doesn't let you destroy it for everyone.
 		if found && !canAccessProject(r.Context(), storage, deleted.ProjectID) {
 			writeProjectForbidden(w)
 			return
@@ -284,6 +327,44 @@ func registerConfigRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMan
 			return
 		}
 		auditLog.Log(r.Context(), "host.delete", "host", id, label, "")
+
+		// A service is defined by the host it runs on, so it doesn't outlive
+		// one: leaving it behind just puts a card on the canvas that points at
+		// nothing and has to be cleaned up by hand.
+		//
+		// Done after the host is already gone, deliberately. Neither write is
+		// transactional, and of the two ways this can half-finish, leaving
+		// services behind is the recoverable one -- they show up as detached
+		// and can still be deleted. Removing them first and then failing to
+		// remove the host would destroy data the caller never asked to lose.
+		services, err := storage.GetServices(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		keptServices := services[:0]
+		var cascaded []Service
+		for _, s := range services {
+			// A service in a project this caller can't reach isn't theirs to
+			// delete; it's left detached rather than silently removed.
+			if s.HostID == id && canAccessProject(r.Context(), storage, s.ProjectID) {
+				cascaded = append(cascaded, s)
+				continue
+			}
+			keptServices = append(keptServices, s)
+		}
+		if len(cascaded) > 0 {
+			if err := storage.SaveServices(r.Context(), keptServices); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			// Logged one per service, not as a count on the host entry, so
+			// "when did this service disappear" is answerable from the trail.
+			for _, s := range cascaded {
+				auditLog.Log(r.Context(), "service.delete", "service", s.ID, s.Name,
+					"cascaded from host "+label)
+			}
+		}
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	}))
 
@@ -409,6 +490,15 @@ func registerConfigRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMan
 			return
 		}
 		creds = filterByProjectAccess(r, storage, creds, func(c Credential) string { return c.ProjectID })
+		// Roles below readwrite see that a credential exists, and what it's
+		// called, but never its contents. Stripped here at the response
+		// boundary rather than in the browser -- the point is that the
+		// secret never leaves the server, not that the UI hides it.
+		if !canReadSecrets(roleFromContext(r.Context())) {
+			for i := range creds {
+				creds[i] = redactCredential(creds[i])
+			}
+		}
 		writeJSON(w, http.StatusOK, creds)
 	}))
 	mux.HandleFunc("POST /api/credentials", protected(authMgr, sealMgr, func(w http.ResponseWriter, r *http.Request) {

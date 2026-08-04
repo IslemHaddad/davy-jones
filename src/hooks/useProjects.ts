@@ -17,8 +17,9 @@ export function useProjects() {
 
   const createProject = useCallback(
     async (project: Omit<Project, "id" | "createdAt">) => {
-      await api.projects.create(project);
+      const created = await api.projects.create(project);
       await reload();
+      return created;
     },
     [reload],
   );

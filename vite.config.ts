@@ -11,6 +11,14 @@ const apiProxyTarget =
 export default defineConfig({
   plugins: [react()],
   server: {
+    // Bind loopback only: the dev server has no auth of its own and can read
+    // any file the project is allowed to serve, so it should never be
+    // reachable from the LAN. Production is the Go binary, not this.
+    host: "127.0.0.1",
+    fs: {
+      strict: true,
+      deny: [".env", ".env.*", "*.pem", "*.key", "**/.git/**"],
+    },
     proxy: {
       "/api": {
         target: apiProxyTarget,
