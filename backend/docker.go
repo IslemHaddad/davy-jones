@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -134,15 +135,51 @@ func DockerRemove(vpn Vpn) CommandResult {
 	return runLocal(cfg.DockerTimeout, cfg.DockerBin, "rm", "-f", name)
 }
 
-// DockerStart/DockerStop just toggle the container provisioned by
-// DockerProvision -- they never create or remove it, so container state
-// (and anything written to its filesystem) survives a stop/start cycle.
-func DockerStart(vpn Vpn) CommandResult {
+// containerExists reports whether the VPN's container is present at all,
+// running or stopped.
+//
+// `docker ps -a --filter` rather than `docker inspect` because the two
+// failures have to stay distinguishable: inspect exits non-zero both when the
+// container is absent and when the daemon can't be reached, and treating the
+// second as "absent" would answer an unreachable Docker by trying to build a
+// container. Here a clean exit with no output means definitively "not there",
+// and anything else is a docker problem to report as-is.
+func containerExists(name string) (bool, *CommandResult) {
+	res := runLocal(cfg.DockerTimeout, cfg.DockerBin, "ps", "-a",
+		"--filter", "name=^"+regexp.QuoteMeta(name)+"$", "--format", "{{.Names}}")
+	if res.ExitCode != 0 || res.Error != "" {
+		return false, &res
+	}
+	return strings.TrimSpace(res.Stdout) != "", nil
+}
+
+// DockerStart brings the VPN's container up, rebuilding it first if it is no
+// longer there.
+//
+// Stop/start on an existing container is still the normal path -- container
+// state survives it, which is why provisioning isn't done on every click.
+// But "the container always exists once provisioned" is not true on every
+// host: a reaper that prunes stopped containers (or an operator's `docker
+// system prune`) removes it out from under us, and Start would then fail with
+// "No such container" forever, with the only way out being to re-save the VPN
+// to trigger a provision. Rebuilding from the same stored config is what the
+// operator wanted from the button either way.
+// The second return value reports whether the container had to be rebuilt,
+// so the caller can say so in the audit trail rather than logging a plain
+// "start" for what was really a provision.
+func DockerStart(vpn Vpn, cred Credential) (CommandResult, bool) {
 	name, errResult := requireContainerName(vpn)
 	if errResult != nil {
-		return *errResult
+		return *errResult, false
 	}
-	return runLocal(cfg.DockerTimeout, cfg.DockerBin, "start", name)
+	exists, failure := containerExists(name)
+	if failure != nil {
+		return *failure, false
+	}
+	if !exists {
+		return DockerProvision(vpn, cred), true
+	}
+	return runLocal(cfg.DockerTimeout, cfg.DockerBin, "start", name), false
 }
 
 func DockerStop(vpn Vpn) CommandResult {

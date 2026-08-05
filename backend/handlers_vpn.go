@@ -30,8 +30,15 @@ func registerVPNRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManage
 			writeProjectForbidden(w)
 			return
 		}
-		result := DockerStart(vpn)
-		auditLog.Log(r.Context(), "vpn.docker.start", "vpn", vpn.ID, vpn.Name, "")
+		result, rebuilt := DockerStart(vpn, vpnCredential(r.Context(), storage, vpn))
+		// Distinguished in the trail: "start" and "the container was gone and
+		// got rebuilt" are different events, and on a host that prunes
+		// stopped containers the second is worth being able to count.
+		detail := ""
+		if rebuilt {
+			detail = "container was missing -- rebuilt from stored config"
+		}
+		auditLog.Log(r.Context(), "vpn.docker.start", "vpn", vpn.ID, vpn.Name, detail)
 		writeJSON(w, http.StatusOK, result)
 	}))
 

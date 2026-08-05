@@ -23,14 +23,23 @@ type VpnWithProvisionResult struct {
 // click. Doesn't fail the request on a docker error (the VPN's config is
 // already saved either way) -- the result is both audit-logged and handed
 // back to the caller to display.
-func provisionVpnContainer(ctx context.Context, storage *Storage, auditLog *AuditLogger, v Vpn) CommandResult {
-	var cred Credential
-	if v.CredentialID != "" {
-		if c, ok := findCredential(ctx, storage, v.CredentialID); ok {
-			cred = c
-		}
+// vpnCredential resolves the credential a VPN's command template substitutes
+// {{user}}/{{pass}} from. A VPN with none configured, or one pointing at a
+// credential that has since been deleted, yields the zero value rather than
+// an error -- the command may not reference those placeholders at all, and
+// docker's own error is a better report than a guess made here.
+func vpnCredential(ctx context.Context, storage *Storage, v Vpn) Credential {
+	if v.CredentialID == "" {
+		return Credential{}
 	}
-	result := DockerProvision(v, cred)
+	if c, ok := findCredential(ctx, storage, v.CredentialID); ok {
+		return c
+	}
+	return Credential{}
+}
+
+func provisionVpnContainer(ctx context.Context, storage *Storage, auditLog *AuditLogger, v Vpn) CommandResult {
+	result := DockerProvision(v, vpnCredential(ctx, storage, v))
 	detail := fmt.Sprintf("exit=%d", result.ExitCode)
 	if result.Error != "" {
 		detail = result.Error
