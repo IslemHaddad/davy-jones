@@ -6,6 +6,7 @@ import type {
   GraphLayout,
   Host,
   HostMetricsResponse,
+  IpsecCredential,
   NodePosition,
   Project,
   Role,
@@ -153,6 +154,39 @@ export const api = {
       request<Credential>("PUT", `/api/credentials/${id}`, credential),
     remove: (id: string) =>
       request<{ ok: boolean }>("DELETE", `/api/credentials/${id}`),
+  },
+
+  ipsecCredentials: {
+    list: (projectId?: string) =>
+      request<IpsecCredential[]>(
+        "GET",
+        `/api/ipsec-credentials${projectQuery(projectId)}`,
+      ),
+    create: (credential: Omit<IpsecCredential, "id">) =>
+      request<IpsecCredential>("POST", "/api/ipsec-credentials", credential),
+    // Partial on purpose. The server's PUT is a *merge*: a key that isn't in
+    // the body keeps its stored value. That's what lets the form leave a
+    // secret blank to mean "unchanged" instead of wiping a password it was
+    // never allowed to display in the first place.
+    update: (id: string, credential: Partial<Omit<IpsecCredential, "id">>) =>
+      request<IpsecCredential>(
+        "PUT",
+        `/api/ipsec-credentials/${id}`,
+        credential,
+      ),
+    remove: (id: string) =>
+      request<{ ok: boolean }>("DELETE", `/api/ipsec-credentials/${id}`),
+
+    // Which profile a VPN draws its {{ipsec*}} placeholders from. Kept off
+    // the VPN payload itself so this feature can't blank a field on a client
+    // that doesn't know about it -- see IpsecConfig in backend/ipsec.go.
+    binding: (vpnId: string) =>
+      request<{ credentialId: string }>("GET", `/api/vpns/${vpnId}/ipsec`),
+    /** Pass "" to clear the binding. */
+    bind: (vpnId: string, credentialId: string) =>
+      request<{ credentialId: string }>("PUT", `/api/vpns/${vpnId}/ipsec`, {
+        credentialId,
+      }),
   },
 
   layout: {

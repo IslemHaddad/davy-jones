@@ -4,6 +4,7 @@ import type {
   Credential,
   Host,
   HostMetricsResponse,
+  IpsecCredential,
   Project,
   SavedCommand,
   Service,
@@ -27,29 +28,38 @@ interface SidebarProps {
   hosts: Host[];
   services: Service[];
   credentials: Credential[];
+  ipsecCredentials: IpsecCredential[];
   projects: Project[];
   activeProjectId: string;
   savedCommands: SavedCommand[];
   onCreateVpn: (
     vpn: Omit<Vpn, "id">,
-  ) => Promise<{ container: CommandResult } | void>;
+  ) => Promise<(Vpn & { container: CommandResult }) | void>;
   onCreateHost: (host: Omit<Host, "id">) => Promise<void>;
   onCreateService: (service: Omit<Service, "id">) => Promise<void>;
   onCreateCredential: (credential: Omit<Credential, "id">) => Promise<void>;
+  onCreateIpsecCredential: (
+    credential: Omit<IpsecCredential, "id">,
+  ) => Promise<void>;
   onUpdateVpn: (
     id: string,
     vpn: Omit<Vpn, "id">,
-  ) => Promise<{ container: CommandResult } | void>;
+  ) => Promise<(Vpn & { container: CommandResult }) | void>;
   onUpdateHost: (id: string, host: Omit<Host, "id">) => Promise<void>;
   onUpdateService: (id: string, service: Omit<Service, "id">) => Promise<void>;
   onUpdateCredential: (
     id: string,
     credential: Omit<Credential, "id">,
   ) => Promise<void>;
+  onUpdateIpsecCredential: (
+    id: string,
+    credential: Partial<Omit<IpsecCredential, "id">>,
+  ) => Promise<void>;
   onDeleteVpn: (id: string) => void;
   onDeleteHost: (id: string) => void;
   onDeleteService: (id: string) => void;
   onDeleteCredential: (id: string) => void;
+  onDeleteIpsecCredential: (id: string) => void;
   onCreateSavedCommand: (cmd: Omit<SavedCommand, "id">) => Promise<void>;
   onDeleteSavedCommand: (id: string) => void;
   onOpenShell: (hostId: string, hostName: string) => void;
@@ -112,20 +122,24 @@ export function Sidebar(props: SidebarProps) {
             hosts={props.hosts}
             services={props.services}
             credentials={props.credentials}
+            ipsecCredentials={props.ipsecCredentials}
             projects={props.projects}
             activeProjectId={props.activeProjectId}
             onCreateVpn={props.onCreateVpn}
             onCreateHost={props.onCreateHost}
             onCreateService={props.onCreateService}
             onCreateCredential={props.onCreateCredential}
+            onCreateIpsecCredential={props.onCreateIpsecCredential}
             onUpdateVpn={props.onUpdateVpn}
             onUpdateHost={props.onUpdateHost}
             onUpdateService={props.onUpdateService}
             onUpdateCredential={props.onUpdateCredential}
+            onUpdateIpsecCredential={props.onUpdateIpsecCredential}
             onDeleteVpn={props.onDeleteVpn}
             onDeleteHost={props.onDeleteHost}
             onDeleteService={props.onDeleteService}
             onDeleteCredential={props.onDeleteCredential}
+            onDeleteIpsecCredential={props.onDeleteIpsecCredential}
           />
         )}
       </div>

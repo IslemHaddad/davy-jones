@@ -30,7 +30,10 @@ func registerVPNRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManage
 			writeProjectForbidden(w)
 			return
 		}
-		result, rebuilt := DockerStart(vpn, vpnCredential(r.Context(), storage, vpn))
+		// applyIpsec only matters on the rebuild branch (Start on an
+		// existing container doesn't re-run the command), and is a no-op
+		// for a VPN whose command has no {{ipsec*}} placeholders.
+		result, rebuilt := DockerStart(applyIpsec(r.Context(), storage, vpn), vpnCredential(r.Context(), storage, vpn))
 		// Distinguished in the trail: "start" and "the container was gone and
 		// got rebuilt" are different events, and on a host that prunes
 		// stopped containers the second is worth being able to count.

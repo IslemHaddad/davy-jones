@@ -251,6 +251,7 @@ export function Dashboard() {
           hosts={data.hosts}
           services={data.services}
           credentials={data.credentials}
+          ipsecCredentials={data.ipsecCredentials}
           projects={projects.projects}
           activeProjectId={activeProjectId}
           savedCommands={data.savedCommands}
@@ -258,11 +259,14 @@ export function Dashboard() {
           onCreateHost={data.createHost}
           onCreateService={data.createService}
           onCreateCredential={data.createCredential}
+          onCreateIpsecCredential={data.createIpsecCredential}
           onUpdateVpn={data.updateVpn}
           onUpdateHost={data.updateHost}
           onUpdateService={data.updateService}
           onUpdateCredential={data.updateCredential}
+          onUpdateIpsecCredential={data.updateIpsecCredential}
           onDeleteCredential={data.deleteCredential}
+          onDeleteIpsecCredential={data.deleteIpsecCredential}
           onCreateSavedCommand={data.createSavedCommand}
           onDeleteSavedCommand={data.deleteSavedCommand}
           onOpenShell={openShell}

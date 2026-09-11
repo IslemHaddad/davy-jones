@@ -1,45 +1,65 @@
 import { useState, type ReactNode } from "react";
-import { Network, Server, Box, Key, Pencil, Trash2 } from "lucide-react";
+import {
+  Network,
+  Server,
+  Box,
+  Key,
+  Lock,
+  Pencil,
+  Trash2,
+} from "lucide-react";
 import type {
   ClientCertificate,
   CommandResult,
   Credential,
   Host,
+  IpsecCredential,
   Project,
   Service,
   Vpn,
 } from "../../types";
+import { api } from "../../lib/api";
 import { DiscoverServices } from "./DiscoverServices";
+import { IpsecCredentialForm } from "./IpsecCredentialForm";
 
-type ResourceKind = "vpn" | "host" | "service" | "credential";
+type ResourceKind = "vpn" | "host" | "service" | "credential" | "ipsec";
+
+/** What a create/update returns: the saved VPN plus the result of the
+ * container build it triggered. The id matters to callers that have follow-up
+ * work to do on a VPN that didn't exist until the call returned. */
+type VpnSaveResult = (Vpn & { container: CommandResult }) | void;
 
 interface AddResourcesPanelProps {
   vpns: Vpn[];
   hosts: Host[];
   services: Service[];
   credentials: Credential[];
+  ipsecCredentials: IpsecCredential[];
   projects: Project[];
   activeProjectId: string;
-  onCreateVpn: (
-    vpn: Omit<Vpn, "id">,
-  ) => Promise<{ container: CommandResult } | void>;
+  onCreateVpn: (vpn: Omit<Vpn, "id">) => Promise<VpnSaveResult>;
   onCreateHost: (host: Omit<Host, "id">) => Promise<void>;
   onCreateService: (service: Omit<Service, "id">) => Promise<void>;
   onCreateCredential: (credential: Omit<Credential, "id">) => Promise<void>;
-  onUpdateVpn: (
-    id: string,
-    vpn: Omit<Vpn, "id">,
-  ) => Promise<{ container: CommandResult } | void>;
+  onCreateIpsecCredential: (
+    credential: Omit<IpsecCredential, "id">,
+  ) => Promise<void>;
+  onUpdateVpn: (id: string, vpn: Omit<Vpn, "id">) => Promise<VpnSaveResult>;
   onUpdateHost: (id: string, host: Omit<Host, "id">) => Promise<void>;
   onUpdateService: (id: string, service: Omit<Service, "id">) => Promise<void>;
   onUpdateCredential: (
     id: string,
     credential: Omit<Credential, "id">,
   ) => Promise<void>;
+  onUpdateIpsecCredential: (
+    id: string,
+    credential: Partial<Omit<IpsecCredential, "id">>,
+  ) => Promise<void>;
   onDeleteVpn: (id: string) => void;
   onDeleteHost: (id: string) => void;
   onDeleteService: (id: string) => void;
   onDeleteCredential: (id: string) => void;
+  onDeleteIpsecCredential: (id: string) => void;
 }
 
 const TABS: { key: ResourceKind; label: string; icon: typeof Network }[] = [
@@ -47,6 +67,7 @@ const TABS: { key: ResourceKind; label: string; icon: typeof Network }[] = [
   { key: "host", label: "Host", icon: Server },
   { key: "service", label: "Service", icon: Box },
   { key: "credential", label: "Credential", icon: Key },
+  { key: "ipsec", label: "IPsec", icon: Lock },
 ];
 
 export function AddResourcesPanel(props: AddResourcesPanelProps) {
@@ -75,6 +96,7 @@ export function AddResourcesPanel(props: AddResourcesPanelProps) {
         <VpnForm
           vpns={props.vpns}
           credentials={props.credentials}
+          ipsecCredentials={props.ipsecCredentials}
           projects={props.projects}
           activeProjectId={props.activeProjectId}
           onCreate={props.onCreateVpn}
@@ -107,6 +129,14 @@ export function AddResourcesPanel(props: AddResourcesPanelProps) {
           onCreate={props.onCreateCredential}
           onUpdate={props.onUpdateCredential}
           onDelete={props.onDeleteCredential}
+        />
+      )}
+      {tab === "ipsec" && (
+        <IpsecCredentialForm
+          ipsecCredentials={props.ipsecCredentials}
+          onCreate={props.onCreateIpsecCredential}
+          onUpdate={props.onUpdateIpsecCredential}
+          onDelete={props.onDeleteIpsecCredential}
         />
       )}
     </div>
@@ -163,6 +193,35 @@ const VPN_PRESETS: Record<
       "-e VPN_USER={{user}} -e VPN_PASS={{pass}} {{image}}",
     port: 443,
   },
+  // Every VPN_* the ipsec-vpn image reads is passed, including the ones the
+  // bound profile may leave empty. That's safe by construction: the image
+  // resolves each with `${VAR:-default}`, which treats empty exactly like
+  // unset -- so one command covers all four IKE modes rather than needing a
+  // preset per mode. Certificates go over as base64 (the image accepts a
+  // path, raw PEM, or base64) because raw multi-line PEM through a shell
+  // command into `docker run -e` is only intact by luck of quoting.
+  ipsec: {
+    label: "IPsec / IKEv2 (strongSwan)",
+    image: "davy-jones-ipsec-vpn:latest",
+    command:
+      "docker run -d --name {{container}} --net=host --privileged " +
+      "--device=/dev/net/tun " +
+      "-e VPN_HOST={{host}} -e VPN_PORT={{port}} " +
+      "-e VPN_IKE_MODE={{ipsecIkeMode}} " +
+      "-e VPN_USER={{ipsecUser}} -e VPN_PASS={{ipsecPass}} " +
+      "-e VPN_PSK={{ipsecPsk}} " +
+      "-e VPN_LOCAL_ID={{ipsecLocalId}} -e VPN_REMOTE_ID={{ipsecRemoteId}} " +
+      "-e VPN_GATEWAY_CERT={{ipsecGatewayCertB64}} " +
+      "-e VPN_CLIENT_CERT={{ipsecCertB64}} -e VPN_CLIENT_KEY={{ipsecKeyB64}} " +
+      "-e VPN_IKE_PROPOSALS={{ipsecIkeProposal}} " +
+      "-e VPN_ESP_PROPOSALS={{ipsecEspProposal}} " +
+      "-e VPN_REMOTE_TS={{ipsecRemoteTs}} -e VPN_LOCAL_TS={{ipsecLocalTs}} " +
+      "-e VPN_USERLAND={{ipsecUserland}} " +
+      "{{image}}",
+    // IKE is UDP/500 (and 4500 once NAT-T kicks in), not the 10443/443 an
+    // SSL VPN listens on.
+    port: 500,
+  },
 };
 
 const emptyVpnForm = {
@@ -184,6 +243,7 @@ const emptyVpnForm = {
 function VpnForm({
   vpns,
   credentials,
+  ipsecCredentials,
   projects,
   activeProjectId,
   onCreate,
@@ -192,15 +252,11 @@ function VpnForm({
 }: {
   vpns: Vpn[];
   credentials: Credential[];
+  ipsecCredentials: IpsecCredential[];
   projects: Project[];
   activeProjectId: string;
-  onCreate: (
-    vpn: Omit<Vpn, "id">,
-  ) => Promise<{ container: CommandResult } | void>;
-  onUpdate: (
-    id: string,
-    vpn: Omit<Vpn, "id">,
-  ) => Promise<{ container: CommandResult } | void>;
+  onCreate: (vpn: Omit<Vpn, "id">) => Promise<VpnSaveResult>;
+  onUpdate: (id: string, vpn: Omit<Vpn, "id">) => Promise<VpnSaveResult>;
   onDelete: (id: string) => void;
 }) {
   const [form, setForm] = useState(emptyVpnForm);
@@ -208,6 +264,9 @@ function VpnForm({
   const [presetKey, setPresetKey] = useState("");
   const [containerResult, setContainerResult] =
     useState<CommandResult | null>(null);
+  // Not part of `form`: the binding lives behind its own endpoint rather
+  // than on the VPN record, so it's loaded and saved separately.
+  const [ipsecCredentialId, setIpsecCredentialId] = useState("");
 
   function applyPreset(key: string) {
     setPresetKey(key);
@@ -236,6 +295,14 @@ function VpnForm({
       projectId: vpn.projectId,
       sharedProjectIds: vpn.sharedProjectIds ?? [],
     });
+    // Clear first so a slow (or failed) fetch can't leave the previously
+    // edited VPN's profile showing against this one -- and then be saved
+    // onto it.
+    setIpsecCredentialId("");
+    api.ipsecCredentials
+      .binding(vpn.id)
+      .then((b) => setIpsecCredentialId(b.credentialId ?? ""))
+      .catch(() => setIpsecCredentialId(""));
   }
 
   function toggleShare(projectId: string) {
@@ -251,30 +318,51 @@ function VpnForm({
     setEditingId(null);
     setPresetKey("");
     setForm(emptyVpnForm);
+    setIpsecCredentialId("");
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setContainerResult(null);
+    const payload = {
+      ...form,
+      credentialId: form.credentialId || undefined,
+    };
+    const usesIpsec = payload.command.includes("{{ipsec");
+
+    let result: VpnSaveResult;
+    if (editingId) {
+      // Bind before saving. Saving rebuilds the container, and the rebuild
+      // reads the binding -- doing these the other way round would provision
+      // the container from the *previous* profile and only pick up the new
+      // one on some later save.
+      await api.ipsecCredentials.bind(editingId, ipsecCredentialId);
+      result = await onUpdate(editingId, payload);
+    } else {
+      result = await onCreate(payload);
+      // A new VPN has no id to bind against until it exists, so its first
+      // container build necessarily ran unbound. Rebuild once with the
+      // binding in place -- but only when the command actually reads the
+      // profile, otherwise this would be a pointless second `docker run` on
+      // every create.
+      if (result && ipsecCredentialId) {
+        await api.ipsecCredentials.bind(result.id, ipsecCredentialId);
+        if (usesIpsec) result = await onUpdate(result.id, payload);
+      }
+    }
+
+    if (result && (result.container.exitCode !== 0 || result.container.error)) {
+      setContainerResult(result.container);
+    }
+    setEditingId(null);
+    setPresetKey("");
+    setForm(emptyVpnForm);
+    setIpsecCredentialId("");
   }
 
   return (
     <div className="flex flex-col gap-4">
-    <form
-      className="flex flex-col gap-3"
-      onSubmit={async (e) => {
-        e.preventDefault();
-        setContainerResult(null);
-        const payload = {
-          ...form,
-          credentialId: form.credentialId || undefined,
-        };
-        const result = editingId
-          ? await onUpdate(editingId, payload)
-          : await onCreate(payload);
-        if (result && (result.container.exitCode !== 0 || result.container.error)) {
-          setContainerResult(result.container);
-        }
-        setEditingId(null);
-        setPresetKey("");
-        setForm(emptyVpnForm);
-      }}
-    >
+    <form className="flex flex-col gap-3" onSubmit={handleSubmit}>
       <Field label="Name">
         <input
           required
@@ -396,6 +484,39 @@ function VpnForm({
             </option>
           ))}
         </select>
+        <span className="mt-1 text-[10px] leading-relaxed text-ink-faint">
+          Supplies {"{{user}}"} and {"{{pass}}"} to the command above.
+        </span>
+      </Field>
+      <Field label="IPsec Profile (optional)">
+        <select
+          className={inputClass}
+          value={ipsecCredentialId}
+          onChange={(e) => setIpsecCredentialId(e.target.value)}
+        >
+          <option value="">None</option>
+          {ipsecCredentials.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name} ({c.ikeMode})
+            </option>
+          ))}
+        </select>
+        <span className="mt-1 text-[10px] leading-relaxed text-ink-faint">
+          {ipsecCredentials.length === 0 ? (
+            <>
+              None defined yet — add one on the{" "}
+              <span className="text-ink-muted">IPsec</span> tab. Only needed
+              for IKEv1/IKEv2 tunnels; an openfortivpn/SSL VPN uses the
+              Credential above instead.
+            </>
+          ) : (
+            <>
+              Supplies the {"{{ipsec…}}"} placeholders to the command above
+              (see the IPsec tab for the full list). Changing this rebuilds
+              the container on save.
+            </>
+          )}
+        </span>
       </Field>
       {(() => {
         // The owning project is implicit (the active one for a new VPN, the

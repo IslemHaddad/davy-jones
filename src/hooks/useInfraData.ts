@@ -3,6 +3,7 @@ import { api } from "../lib/api";
 import type {
   Credential,
   Host,
+  IpsecCredential,
   SavedCommand,
   Service,
   Vpn,
@@ -13,6 +14,9 @@ export function useInfraData(projectId: string) {
   const [hosts, setHosts] = useState<Host[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [credentials, setCredentials] = useState<Credential[]>([]);
+  const [ipsecCredentials, setIpsecCredentials] = useState<IpsecCredential[]>(
+    [],
+  );
   const [savedCommands, setSavedCommands] = useState<SavedCommand[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -26,18 +30,24 @@ export function useInfraData(projectId: string) {
   const reload = useCallback(async () => {
     setError(null);
     try {
-      const [v, h, s, c, sc] = await Promise.all([
+      const [v, h, s, c, sc, ipsec] = await Promise.all([
         api.vpns.list(projectId),
         api.hosts.list(projectId),
         api.services.list(projectId),
         api.credentials.list(projectId),
         api.savedCommands.list(),
+        // Swallowed rather than joined to the others: IPsec is an additive
+        // feature, and a backend too old to serve this route (or any other
+        // failure isolated to it) must not take the whole graph down with
+        // it. An empty list just means the IPsec tab has nothing to show.
+        api.ipsecCredentials.list(projectId).catch(() => [] as IpsecCredential[]),
       ]);
       setVpns(v);
       setHosts(h);
       setServices(s);
       setCredentials(c);
       setSavedCommands(sc);
+      setIpsecCredentials(ipsec);
       setLoadedOnce(true);
     } catch (e) {
       setError(String(e));
@@ -120,6 +130,30 @@ export function useInfraData(projectId: string) {
     },
     [reload],
   );
+  const createIpsecCredential = useCallback(
+    async (credential: Omit<IpsecCredential, "id">) => {
+      await api.ipsecCredentials.create({ ...credential, projectId });
+      await reload();
+    },
+    [reload, projectId],
+  );
+  // Takes a Partial because the server merges: the form omits a secret it
+  // is leaving alone, so absent keys must survive all the way to the wire.
+  const updateIpsecCredential = useCallback(
+    async (id: string, credential: Partial<Omit<IpsecCredential, "id">>) => {
+      await api.ipsecCredentials.update(id, credential);
+      await reload();
+    },
+    [reload],
+  );
+  const deleteIpsecCredential = useCallback(
+    async (id: string) => {
+      await api.ipsecCredentials.remove(id);
+      await reload();
+    },
+    [reload],
+  );
+
   const createSavedCommand = useCallback(
     async (cmd: Omit<SavedCommand, "id">) => {
       await api.savedCommands.create(cmd);
@@ -169,6 +203,7 @@ export function useInfraData(projectId: string) {
     hosts,
     services,
     credentials,
+    ipsecCredentials,
     savedCommands,
     loading,
     error,
@@ -182,6 +217,9 @@ export function useInfraData(projectId: string) {
     updateHost,
     updateService,
     updateCredential,
+    createIpsecCredential,
+    updateIpsecCredential,
+    deleteIpsecCredential,
     createSavedCommand,
     deleteVpn,
     deleteHost,

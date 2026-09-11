@@ -52,6 +52,36 @@ Every runtime behavior (bind host/port, data directory, timeouts, session
 length, docker binary) is environment-configurable — see
 `backend/.env.example`. Nothing is hardcoded to a dev-machine path.
 
+### VPN client images
+
+A VPN's "Container Command" is run verbatim, so any image works — but the
+two presets in the UI expect specific tags, which you build yourself:
+
+```bash
+# SSL VPN (openfortivpn) -- preset "FortiClient VPN"
+docker build -t davy-jones-forticlient-vpn:latest deploy/forticlient-vpn
+
+# IPsec / IKEv2 (strongSwan) -- preset "IPsec / IKEv2"
+docker build -t davy-jones-ipsec-vpn:latest <path-to>/ipsec-vpn
+```
+
+The IPsec preset passes every variable that image reads
+(`VPN_IKE_MODE`, `VPN_PSK`, `VPN_USER`/`VPN_PASS`, `VPN_GATEWAY_CERT`,
+`VPN_CLIENT_CERT`/`VPN_CLIENT_KEY`, `VPN_REMOTE_TS`, …) from the IPsec
+profile bound to that VPN. Values the profile leaves empty are passed
+empty, which the image's own `${VAR:-default}` fallbacks treat as unset —
+so one command covers all four IKE modes. Certificates travel as base64
+(`{{ipsecCertB64}}` and friends): multi-line PEM does not survive a shell
+command into `docker run -e` intact.
+
+**Set "Routed Subnets" on any IPsec profile.** These containers run
+`--net=host`, because davy-jones reaches hosts behind a VPN directly rather
+than through the container (`vpnId` on a Host is a topology annotation, not
+a route). Left empty, strongSwan claims `0.0.0.0/0` and installs a default
+route over the tunnel for the entire machine — including the SSH and HTTP
+you are administering it over. List only the subnets that live behind the
+gateway.
+
 ### Encryption at rest (seal / unseal)
 
 All infrastructure data — VPNs, hosts, services, and SSH credentials

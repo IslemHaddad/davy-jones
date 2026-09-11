@@ -43,6 +43,7 @@ func main() {
 	registerLayoutRoutes(mux, storage, authMgr, sealMgr)
 	registerDiscoveryRoutes(mux, storage, authMgr, sealMgr, auditLog)
 	registerVPNRoutes(mux, storage, authMgr, sealMgr, auditLog)
+	registerIpsecRoutes(mux, storage, authMgr, sealMgr, auditLog)
 	registerSavedCommandRoutes(mux, storage, authMgr, sealMgr, auditLog)
 	registerTerminalRoutes(mux, storage, authMgr, sealMgr, auditLog)
 	registerAuditRoutes(mux, auditLog, authMgr, sealMgr)

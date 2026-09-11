@@ -39,7 +39,7 @@ func vpnCredential(ctx context.Context, storage *Storage, v Vpn) Credential {
 }
 
 func provisionVpnContainer(ctx context.Context, storage *Storage, auditLog *AuditLogger, v Vpn) CommandResult {
-	result := DockerProvision(v, vpnCredential(ctx, storage, v))
+	result := DockerProvision(applyIpsec(ctx, storage, v), vpnCredential(ctx, storage, v))
 	detail := fmt.Sprintf("exit=%d", result.ExitCode)
 	if result.Error != "" {
 		detail = result.Error
