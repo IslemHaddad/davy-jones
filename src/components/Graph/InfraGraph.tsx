@@ -130,6 +130,13 @@ export function InfraGraph({
   // automatic layout, so treating those as "existing" would pin the nodes to
   // it and the saved arrangement would never be applied. Reset whenever
   // layoutLoaded goes false again (i.e. on a project switch).
+  //
+  // `measured` is carried over too. React Flow v12 keeps a node's size only
+  // on the node object it was handed, and renders a node without one as
+  // visibility:hidden until a ResizeObserver callback re-measures it. Every
+  // poll rebuilds these nodes, so dropping `measured` blanked the whole graph
+  // whenever that callback was late or never came (the element's size hadn't
+  // changed), until something like a tab switch forced a re-measure.
   const hydratedRef = useRef(false);
   if (!layoutLoaded) hydratedRef.current = false;
 
@@ -142,9 +149,10 @@ export function InfraGraph({
       const prevById = new Map(prev.map((n) => [n.id, n]));
       return layout.nodes.map((n) => {
         const saved = savedPositions[n.id];
-        if (hydrating) return saved ? { ...n, position: saved } : n;
         const existing = prevById.get(n.id);
-        if (existing) return { ...n, position: existing.position };
+        const measured = existing?.measured;
+        if (hydrating) return { ...n, measured, position: saved ?? n.position };
+        if (existing) return { ...n, measured, position: existing.position };
         return saved ? { ...n, position: saved } : n;
       });
     });
@@ -173,7 +181,10 @@ export function InfraGraph({
   // generated layout. Both halves are needed: clearing the stored positions
   // alone would leave the nodes exactly where they are on screen.
   function resetLayout() {
-    setNodes(layout.nodes);
+    setNodes((prev) => {
+      const prevById = new Map(prev.map((n) => [n.id, n]));
+      return layout.nodes.map((n) => ({ ...n, measured: prevById.get(n.id)?.measured }));
+    });
     onPositionsChange({});
   }
 

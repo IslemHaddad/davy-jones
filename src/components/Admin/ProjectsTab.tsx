@@ -3,7 +3,7 @@ import { Pencil, Trash2, Download, Upload } from "lucide-react";
 import type { Project, User } from "../../types";
 import { api } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
-import { Field, SubmitButton, inputClass } from "../Layout/AddResourcesPanel";
+import { Field, FieldGroup, SubmitButton, inputClass } from "../Layout/AddResourcesPanel";
 import { ExportUmlDialog } from "./ExportUmlDialog";
 import { ImportProjectDialog } from "./ImportProjectDialog";
 
@@ -107,7 +107,7 @@ export function ProjectsTab({
           />
         </Field>
         {editingId && (
-          <Field label="Members (who can access this project)">
+          <FieldGroup label="Members (who can access this project)">
             <div className="flex flex-col gap-1 rounded border border-border bg-surface p-2">
               {users.map((u) => (
                 <label
@@ -128,7 +128,7 @@ export function ProjectsTab({
                 </label>
               ))}
             </div>
-          </Field>
+          </FieldGroup>
         )}
         {error && <p className="text-xs text-red-400">{error}</p>}
         <div className="flex gap-2">

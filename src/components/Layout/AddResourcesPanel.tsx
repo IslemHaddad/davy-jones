@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import {
   Network,
   Server,
@@ -157,6 +157,28 @@ export function Field({
       </span>
       {children}
     </label>
+  );
+}
+
+// FieldGroup is Field for a set of controls (e.g. a checkbox list). Field
+// renders a <label>, which binds to its first form control -- wrapping a
+// list in one makes a click on the caption toggle the first checkbox, and
+// nests <label>s, which is invalid HTML.
+export function FieldGroup({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  const labelId = useId();
+  return (
+    <div role="group" aria-labelledby={labelId} className="flex flex-col gap-1">
+      <span id={labelId} className="text-[10px] uppercase tracking-widest text-ink-faint">
+        {label}
+      </span>
+      {children}
+    </div>
   );
 }
 
@@ -526,7 +548,7 @@ function VpnForm({
         const shareable = projects.filter((p) => p.id !== ownerId);
         if (shareable.length === 0) return null;
         return (
-          <Field label="Also available in">
+          <FieldGroup label="Also available in">
             <div className="flex flex-col gap-1 rounded border border-border bg-surface p-2">
               {shareable.map((p) => (
                 <label
@@ -548,7 +570,7 @@ function VpnForm({
               {projects.find((p) => p.id === ownerId)?.name ?? "Unassigned"},
               which is the only project it can be deleted from.
             </span>
-          </Field>
+          </FieldGroup>
         );
       })()}
       {containerResult && (
