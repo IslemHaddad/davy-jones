@@ -1,6 +1,6 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+/* Theme tokens and darkMode live in the v3-style JS config. */
+@config "../tailwind.config.js";
 
 @layer base {
   /* Dark is the default (matches the app's original single-theme design)
