@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Monitor Master</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <section id="login" class="login" hidden>
+    <form id="login-form" class="card">
+      <h1>Monitor Master</h1>
+      <label>Admin token
+        <input id="login-token" type="password" autocomplete="current-password" required>
+      </label>
+      <p id="login-error" class="error"></p>
+      <button type="submit">Sign in</button>
+    </form>
+  </section>
+
+  <div id="app" hidden>
+    <header>
+      <strong>Monitor Master</strong>
+      <nav>
+        <button data-tab="status" class="active">Status</button>
+        <button data-tab="checks">Checks</button>
+        <button data-tab="workers">Workers</button>
+        <button data-tab="settings">Settings</button>
+      </nav>
+      <button id="logout" class="ghost">Sign out</button>
+    </header>
+
+    <main>
+      <p id="flash" class="flash" hidden></p>
+
+      <section data-panel="status">
+        <h2>Status</h2>
+        <table>
+          <thead><tr><th>State</th><th>Worker</th><th>Check</th><th>Exit</th><th>Last run</th><th>Since</th><th>Output</th></tr></thead>
+          <tbody id="status-body"></tbody>
+        </table>
+        <p id="status-empty" class="muted" hidden>No checks yet. Add a worker, then a check.</p>
+      </section>
+
+      <section data-panel="checks" hidden>
+        <h2 id="check-form-title">New check</h2>
+        <form id="check-form" class="card grid">
+          <label>Worker (VM)
+            <select id="check-worker" required></select>
+          </label>
+          <label>Name
+            <input id="check-name" maxlength="100" placeholder="nginx is running" required>
+          </label>
+          <label class="wide">Command <span class="muted">— exit code 0 = true, anything else = false (alert)</span>
+            <textarea id="check-command" rows="3" maxlength="4096" placeholder="systemctl is-active --quiet nginx" required></textarea>
+          </label>
+          <label>Interval (seconds)
+            <input id="check-interval" type="number" min="10" max="86400" value="60" required>
+          </label>
+          <label>Timeout (seconds)
+            <input id="check-timeout" type="number" min="1" max="3600" value="30" required>
+          </label>
+          <label class="inline"><input id="check-enabled" type="checkbox" checked> Enabled</label>
+          <div class="actions wide">
+            <button type="submit" id="check-submit">Add check</button>
+            <button type="button" id="check-cancel" class="ghost" hidden>Cancel</button>
+          </div>
+        </form>
+
+        <h2>Checks</h2>
+        <table>
+          <thead><tr><th>Worker</th><th>Name</th><th>Command</th><th>Every</th><th>Enabled</th><th></th></tr></thead>
+          <tbody id="checks-body"></tbody>
+        </table>
+      </section>
+
+      <section data-panel="workers" hidden>
+        <h2>New worker</h2>
+        <form id="worker-form" class="card row">
+          <input id="worker-name" maxlength="100" placeholder="VM name, e.g. web-01" required>
+          <button type="submit">Add worker</button>
+        </form>
+        <div id="token-box" class="card token" hidden>
+          <p><strong>Worker token for <span id="token-worker"></span></strong> — shown once, copy it now.</p>
+          <code id="token-value"></code>
+          <p class="muted">On the VM, put it in <code>/etc/monitor-worker/token</code> (mode 600) and start <code>monitor-worker</code> with <code>-master <span id="token-master"></span></code>.</p>
+          <button type="button" id="token-dismiss" class="ghost">I've copied it</button>
+        </div>
+
+        <h2>Workers</h2>
+        <table>
+          <thead><tr><th>Name</th><th>Last seen</th><th>State</th><th></th></tr></thead>
+          <tbody id="workers-body"></tbody>
+        </table>
+      </section>
+
+      <section data-panel="settings" hidden>
+        <h2>Webhook</h2>
+        <form id="settings-form" class="card row">
+          <input id="webhook-url" type="url" placeholder="https://hooks.slack.com/services/..." >
+          <button type="submit">Save</button>
+          <button type="button" id="webhook-test" class="ghost">Send test</button>
+        </form>
+        <p class="muted">Receives a JSON POST when a check turns false (alert), turns true again (OK), or a worker stops reporting.</p>
+
+        <h2>Config JSON</h2>
+        <pre id="config-json" class="card"></pre>
+      </section>
+    </main>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

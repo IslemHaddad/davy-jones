@@ -1,0 +1,23 @@
+[Unit]
+Description=Monitor master (check definitions, results, webhook alerts)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=true
+StateDirectory=monitor-master
+Environment=MON_DATA_FILE=/var/lib/monitor-master/state.json
+# MON_ADMIN_TOKEN (required), MON_ADDR, MON_STALE_AFTER, MON_TLS_CERT/KEY
+EnvironmentFile=/etc/monitor-master/env
+ExecStart=/usr/local/bin/monitor-master
+Restart=on-failure
+RestartSec=2
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

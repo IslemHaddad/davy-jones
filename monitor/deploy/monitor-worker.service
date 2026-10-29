@@ -1,0 +1,21 @@
+[Unit]
+Description=Monitor worker (runs checks from monitor-master on this VM)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Checks run as this user, with its permissions. Add it to groups a check
+# needs (e.g. `docker`) rather than running the worker as root.
+User=monitor-worker
+Group=monitor-worker
+Environment=MON_WORKER_TOKEN_FILE=/etc/monitor-worker/token
+# MON_MASTER_URL (required)
+EnvironmentFile=/etc/monitor-worker/env
+ExecStart=/usr/local/bin/monitor-worker
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
