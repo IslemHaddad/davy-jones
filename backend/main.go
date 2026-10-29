@@ -31,21 +31,23 @@ func main() {
 		log.Printf("not yet initialized: POST /api/seal/initialize to generate key shares")
 	}
 	auditLog := NewAuditLogger(cfg.DataDir)
+	vpnIdle := NewVpnIdleTracker()
+	go vpnIdle.RunIdleSweep(storage, sealMgr, auditLog)
 
 	mux := http.NewServeMux()
 	registerSealRoutes(mux, sealMgr)
 	registerAuthRoutes(mux, authMgr, sealMgr, auditLog)
 	registerUserRoutes(mux, authMgr, sealMgr, auditLog)
 	registerProjectRoutes(mux, storage, authMgr, sealMgr, auditLog)
-	registerConfigRoutes(mux, storage, authMgr, sealMgr, auditLog)
-	registerSSHRoutes(mux, storage, authMgr, sealMgr, auditLog)
+	registerConfigRoutes(mux, storage, authMgr, sealMgr, auditLog, vpnIdle)
+	registerSSHRoutes(mux, storage, authMgr, sealMgr, auditLog, vpnIdle)
 	registerMetricsRoutes(mux, storage, authMgr, sealMgr, NewMetricsCollector())
 	registerLayoutRoutes(mux, storage, authMgr, sealMgr)
-	registerDiscoveryRoutes(mux, storage, authMgr, sealMgr, auditLog)
-	registerVPNRoutes(mux, storage, authMgr, sealMgr, auditLog)
+	registerDiscoveryRoutes(mux, storage, authMgr, sealMgr, auditLog, vpnIdle)
+	registerVPNRoutes(mux, storage, authMgr, sealMgr, auditLog, vpnIdle)
 	registerIpsecRoutes(mux, storage, authMgr, sealMgr, auditLog)
 	registerSavedCommandRoutes(mux, storage, authMgr, sealMgr, auditLog)
-	registerTerminalRoutes(mux, storage, authMgr, sealMgr, auditLog)
+	registerTerminalRoutes(mux, storage, authMgr, sealMgr, auditLog, vpnIdle)
 	registerAuditRoutes(mux, auditLog, authMgr, sealMgr)
 
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {

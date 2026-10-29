@@ -260,6 +260,10 @@ const emptyVpnForm = {
   // project it's merely shared into doesn't reassign ownership.
   projectId: undefined as string | undefined,
   sharedProjectIds: [] as string[],
+  // Stop the container after this many minutes with nobody using the VPN;
+  // 0 never stops it. On for new VPNs, so an idle tunnel doesn't hold a
+  // session on the gateway all day.
+  idleTimeoutMinutes: 15,
 };
 
 function VpnForm({
@@ -316,6 +320,7 @@ function VpnForm({
       credentialId: vpn.credentialId ?? "",
       projectId: vpn.projectId,
       sharedProjectIds: vpn.sharedProjectIds ?? [],
+      idleTimeoutMinutes: vpn.idleTimeoutMinutes ?? 0,
     });
     // Clear first so a slow (or failed) fetch can't leave the previously
     // edited VPN's profile showing against this one -- and then be saved
@@ -493,6 +498,23 @@ function VpnForm({
           </select>
         </Field>
       </div>
+      <Field label="Idle timeout (minutes)">
+        <input
+          type="number"
+          min={0}
+          max={10080}
+          className={inputClass}
+          value={form.idleTimeoutMinutes}
+          onChange={(e) =>
+            setForm({ ...form, idleTimeoutMinutes: Math.max(0, Number(e.target.value) || 0) })
+          }
+        />
+        <span className="mt-1 text-[10px] leading-relaxed text-ink-faint">
+          Stops the container after this long with no use: no shell or
+          command on a host behind this VPN, and no Start, Ping or Nc on it.
+          Background status polling doesn't count. 0 = never stop.
+        </span>
+      </Field>
       <Field label="Credential (optional)">
         <select
           className={inputClass}

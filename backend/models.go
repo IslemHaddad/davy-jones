@@ -28,6 +28,9 @@ type Vpn struct {
 	// (it is what Delete and re-provisioning are attributed to); sharing
 	// only widens who can see and use it.
 	SharedProjectIDs []string `json:"sharedProjectIds,omitempty"`
+	// IdleTimeoutMinutes stops the container after this many minutes with
+	// nobody using the VPN (see VpnIdleTracker). 0 never stops it.
+	IdleTimeoutMinutes int `json:"idleTimeoutMinutes,omitempty"`
 }
 
 type Host struct {

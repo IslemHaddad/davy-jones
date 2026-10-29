@@ -68,7 +68,7 @@ func (w wsOutputWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func registerTerminalRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManager, sealMgr *SealManager, auditLog *AuditLogger) {
+func registerTerminalRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManager, sealMgr *SealManager, auditLog *AuditLogger, vpnIdle *VpnIdleTracker) {
 	mux.HandleFunc("GET /api/ws/ssh/session", func(w http.ResponseWriter, r *http.Request) {
 		rawConn, err := wsUpgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -125,6 +125,9 @@ func registerTerminalRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthM
 			conn.writeControl(map[string]string{"type": "error", "message": "credential not found"})
 			return
 		}
+
+		// Held for the whole session: an open shell keeps its VPN up.
+		defer vpnIdle.Hold(host.VpnID)()
 
 		authMethod, err := sshAuthMethod(cred)
 		if err != nil {

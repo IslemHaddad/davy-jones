@@ -81,7 +81,7 @@ func filterByProjectAccess[T any](r *http.Request, storage *Storage, items []T, 
 	return out
 }
 
-func registerConfigRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManager, sealMgr *SealManager, auditLog *AuditLogger) {
+func registerConfigRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManager, sealMgr *SealManager, auditLog *AuditLogger, vpnIdle *VpnIdleTracker) {
 	// VPNs
 	mux.HandleFunc("GET /api/vpns", protected(authMgr, sealMgr, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Has("projectId") && !canAccessProject(r.Context(), storage, r.URL.Query().Get("projectId")) {
@@ -128,6 +128,10 @@ func registerConfigRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMan
 			writeProjectForbidden(w)
 			return
 		}
+		if v.IdleTimeoutMinutes < 0 || v.IdleTimeoutMinutes > maxIdleTimeoutMinutes {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("idle timeout must be between 0 and %d minutes", maxIdleTimeoutMinutes))
+			return
+		}
 		if v.Port == 0 {
 			v.Port = 10443
 		}
@@ -143,6 +147,8 @@ func registerConfigRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMan
 			return
 		}
 		auditLog.Log(r.Context(), "vpn.create", "vpn", v.ID, v.Name, "")
+		// Saving (re)builds and starts the container, which is a use.
+		vpnIdle.Touch(v.ID)
 		containerResult := provisionVpnContainer(r.Context(), storage, auditLog, v)
 		writeJSON(w, http.StatusCreated, VpnWithProvisionResult{Vpn: v, Container: containerResult})
 	}))
@@ -151,6 +157,10 @@ func registerConfigRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMan
 		var updated Vpn
 		if err := readJSON(r, &updated); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid body")
+			return
+		}
+		if updated.IdleTimeoutMinutes < 0 || updated.IdleTimeoutMinutes > maxIdleTimeoutMinutes {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("idle timeout must be between 0 and %d minutes", maxIdleTimeoutMinutes))
 			return
 		}
 		vpns, err := storage.GetVpns(r.Context())
@@ -187,6 +197,8 @@ func registerConfigRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthMan
 			return
 		}
 		auditLog.Log(r.Context(), "vpn.update", "vpn", updated.ID, updated.Name, "")
+		// Saving (re)builds and starts the container, which is a use.
+		vpnIdle.Touch(updated.ID)
 		containerResult := provisionVpnContainer(r.Context(), storage, auditLog, updated)
 		writeJSON(w, http.StatusOK, VpnWithProvisionResult{Vpn: updated, Container: containerResult})
 	}))

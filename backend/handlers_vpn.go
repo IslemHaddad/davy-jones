@@ -19,7 +19,7 @@ func findVpn(ctx context.Context, storage *Storage, id string) (Vpn, bool) {
 	return Vpn{}, false
 }
 
-func registerVPNRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManager, sealMgr *SealManager, auditLog *AuditLogger) {
+func registerVPNRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManager, sealMgr *SealManager, auditLog *AuditLogger, vpnIdle *VpnIdleTracker) {
 	mux.HandleFunc("POST /api/vpns/{id}/docker/start", protected(authMgr, sealMgr, func(w http.ResponseWriter, r *http.Request) {
 		vpn, ok := findVpn(r.Context(), storage, r.PathValue("id"))
 		if !ok {
@@ -33,6 +33,7 @@ func registerVPNRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManage
 		// applyIpsec only matters on the rebuild branch (Start on an
 		// existing container doesn't re-run the command), and is a no-op
 		// for a VPN whose command has no {{ipsec*}} placeholders.
+		vpnIdle.Touch(vpn.ID)
 		result, rebuilt := DockerStart(applyIpsec(r.Context(), storage, vpn), vpnCredential(r.Context(), storage, vpn))
 		// Distinguished in the trail: "start" and "the container was gone and
 		// got rebuilt" are different events, and on a host that prunes
@@ -103,6 +104,7 @@ func registerVPNRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManage
 			writeError(w, http.StatusBadRequest, "invalid body")
 			return
 		}
+		vpnIdle.Touch(vpn.ID)
 		result := DockerExecPing(vpn, body.TargetIP)
 		auditLog.Log(r.Context(), "vpn.docker.ping", "vpn", vpn.ID, vpn.Name, body.TargetIP)
 		writeJSON(w, http.StatusOK, result)
@@ -129,6 +131,7 @@ func registerVPNRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManage
 		if body.Port == 0 {
 			body.Port = 22
 		}
+		vpnIdle.Touch(vpn.ID)
 		result := DockerExecNc(vpn, body.TargetIP, body.Port)
 		auditLog.Log(r.Context(), "vpn.docker.nc", "vpn", vpn.ID, vpn.Name, fmt.Sprintf("%s:%d", body.TargetIP, body.Port))
 		writeJSON(w, http.StatusOK, result)

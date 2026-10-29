@@ -31,7 +31,7 @@ func findCredential(ctx context.Context, storage *Storage, id string) (Credentia
 	return Credential{}, false
 }
 
-func registerSSHRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManager, sealMgr *SealManager, auditLog *AuditLogger) {
+func registerSSHRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManager, sealMgr *SealManager, auditLog *AuditLogger, vpnIdle *VpnIdleTracker) {
 	mux.HandleFunc("POST /api/ssh/exec", protected(authMgr, sealMgr, func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			HostID  string `json:"hostId"`
@@ -55,6 +55,7 @@ func registerSSHRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManage
 			writeError(w, http.StatusNotFound, "credential not found for host")
 			return
 		}
+		vpnIdle.Touch(host.VpnID)
 		result := RunSSHCommand(host, cred, body.Command)
 		auditLog.Log(r.Context(), "ssh.exec", "host", host.ID, host.Name, body.Command)
 		writeJSON(w, http.StatusOK, result)

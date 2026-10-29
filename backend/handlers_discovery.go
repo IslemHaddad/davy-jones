@@ -5,7 +5,7 @@ import "net/http"
 // Discovery only lists what's already running, but it does so by executing a
 // command on the host, so it sits behind the same write permission as any
 // other remote execution (POST => PermWrite via protected).
-func registerDiscoveryRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManager, sealMgr *SealManager, auditLog *AuditLogger) {
+func registerDiscoveryRoutes(mux *http.ServeMux, storage *Storage, authMgr *AuthManager, sealMgr *SealManager, auditLog *AuditLogger, vpnIdle *VpnIdleTracker) {
 	mux.HandleFunc("POST /api/hosts/{id}/discover-services", protected(authMgr, sealMgr, func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Type string `json:"type"`
@@ -29,6 +29,7 @@ func registerDiscoveryRoutes(mux *http.ServeMux, storage *Storage, authMgr *Auth
 			return
 		}
 
+		vpnIdle.Touch(host.VpnID)
 		result := DiscoverServices(host, cred, body.Type)
 		detail := body.Type
 		if result.Error != "" {

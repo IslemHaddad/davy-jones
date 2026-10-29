@@ -14,6 +14,8 @@ export interface Vpn {
   projectId?: string;
   /** Further projects the VPN is shared into, and usable from. */
   sharedProjectIds?: string[];
+  /** Minutes without use before the container is stopped; 0/unset = never. */
+  idleTimeoutMinutes?: number;
 }
 
 export interface Host {
